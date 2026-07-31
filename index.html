@@ -229,6 +229,24 @@
     </div>
 
     <div class="section" style="width:100%;max-width:640px;margin-top:18px;">
+      <h2>자막 · 배경 바 템플릿</h2>
+      <div class="subtitle-form">
+        <label>저장된 템플릿</label>
+        <div class="row" style="gap:6px;">
+          <select id="templateSelect" class="kr" style="flex:1;"><option value="">템플릿 선택…</option></select>
+          <button class="secondary" id="loadTemplateBtn">불러오기</button>
+          <button class="icon-btn danger" id="deleteTemplateBtn" title="삭제">✕</button>
+        </div>
+        <label style="margin-top:10px;">현재 자막/배경 바를 템플릿으로 저장</label>
+        <div class="row" style="gap:6px;">
+          <input type="text" id="templateNameInput" placeholder="템플릿 이름 (예: 기본 인트로)" class="kr" style="flex:1;">
+          <button class="ghost" id="saveTemplateBtn">저장</button>
+        </div>
+        <div class="footer-note" style="margin-top:4px;">자막·배경 바의 내용, 위치, 크기, 글꼴을 통째로 저장해뒀다가 다음 영상에서 그대로 불러올 수 있어요. 이 브라우저에 저장돼서 다시 열어도 남아있어요.</div>
+      </div>
+    </div>
+
+    <div class="section" style="width:100%;max-width:640px;margin-top:18px;">
       <h2>3. 위/아래 배경 바</h2>
       <div class="subtitle-form">
         <label>위치</label>
@@ -4590,6 +4608,72 @@ function renderBarList(){
     wrap.appendChild(div);
   });
 }
+
+/* ============================= 자막·배경 바 템플릿 (다음 영상에서 재사용) ============================= */
+function getTemplates(){
+  try{ return JSON.parse(localStorage.getItem('jh_templates')||'{}'); }
+  catch(e){ return {}; }
+}
+function setTemplates(obj){
+  try{ localStorage.setItem('jh_templates', JSON.stringify(obj)); }catch(e){ /* 저장 공간 접근 불가 */ }
+}
+function renderTemplateSelect(){
+  const sel = document.getElementById('templateSelect');
+  const prevValue = sel.value;
+  const templates = getTemplates();
+  const names = Object.keys(templates);
+  sel.innerHTML = '<option value="">템플릿 선택…</option>' +
+    names.map(n=>`<option value="${n}">${n} (자막 ${templates[n].subtitles.length}개 · 배경바 ${templates[n].bars.length}개)</option>`).join('');
+  if(names.includes(prevValue)) sel.value = prevValue;
+}
+
+document.getElementById('saveTemplateBtn').onclick = ()=>{
+  const name = document.getElementById('templateNameInput').value.trim();
+  if(!name){ alert('템플릿 이름을 입력해주세요.'); return; }
+  if(!state.subtitles.length && !state.bars.length){
+    alert('저장할 자막이나 배경 바가 없어요.'); return;
+  }
+  const templates = getTemplates();
+  const isOverwrite = !!templates[name];
+  if(isOverwrite && !confirm(`"${name}" 템플릿이 이미 있어요. 덮어쓸까요?`)) return;
+  templates[name] = {
+    subtitles: state.subtitles.map(s=>({...s})),
+    bars: state.bars.map(b=>({...b}))
+  };
+  setTemplates(templates);
+  document.getElementById('templateNameInput').value = '';
+  renderTemplateSelect();
+  document.getElementById('templateSelect').value = name;
+};
+
+document.getElementById('loadTemplateBtn').onclick = ()=>{
+  const name = document.getElementById('templateSelect').value;
+  if(!name){ alert('불러올 템플릿을 선택해주세요.'); return; }
+  const templates = getTemplates();
+  const tpl = templates[name];
+  if(!tpl) return;
+  if(state.subtitles.length || state.bars.length){
+    if(!confirm('현재 자막/배경 바가 템플릿 내용으로 교체돼요. 계속할까요?')) return;
+  }
+  state.subtitles = tpl.subtitles.map(s=>({ ...s, id: nextId() }));
+  state.bars = tpl.bars.map(b=>({ ...b, id: nextId() }));
+  state.selectedSubtitleId = null;
+  renderSubtitleList();
+  renderSubTrack();
+  renderBarList();
+};
+
+document.getElementById('deleteTemplateBtn').onclick = ()=>{
+  const name = document.getElementById('templateSelect').value;
+  if(!name){ alert('삭제할 템플릿을 선택해주세요.'); return; }
+  if(!confirm(`"${name}" 템플릿을 삭제할까요?`)) return;
+  const templates = getTemplates();
+  delete templates[name];
+  setTemplates(templates);
+  renderTemplateSelect();
+};
+
+renderTemplateSelect();
 
 /* ============================= 오디오 재생목록 ============================= */
 const audioInput = document.getElementById('audioInput');
