@@ -4124,12 +4124,12 @@ async function getReverseFrames(clip, sourceEl, onProgress, memBudgetOverride){
   const scaleDown = Math.min(1, maxDim/Math.max(srcW,srcH));
   const fw = Math.max(2, Math.round(srcW*scaleDown)), fh = Math.max(2, Math.round(srcH*scaleDown));
   const bytesPerFrame = fw*fh*4;
-  const memBudget = memBudgetOverride || (350*1024*1024); // 기본: 클립당 ~350MB (여러 클립이면 호출부에서 나눠서 지정)
+  const memBudget = memBudgetOverride || (500*1024*1024); // 기본: 클립당 ~500MB (여러 클립이면 호출부에서 나눠서 지정)
   const memCapFrames = Math.max(6, Math.floor(memBudget/bytesPerFrame));
 
   const desiredFps = 24; // 목표는 출력 fps와 동일하게 — 메모리가 허용하는 한 최대한 이 값에 가깝게
   let total = Math.round(clip.duration*desiredFps);
-  total = Math.max(6, Math.min(total, memCapFrames, 300));
+  total = Math.max(6, Math.min(total, memCapFrames));
   const step = clip.duration/total;
 
   sourceEl.pause();
@@ -5298,12 +5298,21 @@ function ytShowResult(videoId){
     `<a class="download-link" href="${url}" target="_blank">유튜브에서 확인하기 → ${url}</a>`;
 }
 
+function sanitizeYoutubeTitle(raw){
+  let t = (raw||'')
+    .replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '') // 눈에 안 보이는 문자(제로폭 공백 등) 제거
+    .replace(/[<>]/g, '') // 유튜브가 허용하지 않는 문자
+    .trim();
+  if(!t) t = '제목 없음';
+  return t.slice(0, 100);
+}
+
 async function uploadBlobToYouTube(blob, mime){
   if(!ytHasValidToken()){
     alert('먼저 "Google 계정 연결" 버튼으로 로그인해주세요 (또는 연결이 만료되어 다시 로그인해야 합니다).');
     return false;
   }
-  const title = document.getElementById('ytTitle').value.trim() || '제목 없음';
+  const title = sanitizeYoutubeTitle(document.getElementById('ytTitle').value);
   let description = document.getElementById('ytDescription').value;
   const tagsRaw = document.getElementById('ytTags').value.trim();
   const tags = tagsRaw ? tagsRaw.split(',').map(s=>s.trim()).filter(Boolean) : [];
