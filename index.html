@@ -69,7 +69,16 @@
     border-radius:8px;padding:8px 10px;margin-bottom:8px;cursor:pointer;transition:border-color .15s;
   }
   .clip-item.selected{border-color:var(--amber);}
-  .clip-item .idx{font-size:11px;color:var(--muted);width:16px;}
+  .clip-item.multi-selected{border-color:var(--teal);background:rgba(79,209,197,0.08);}
+  .clip-item.dragging-row{opacity:0.4;}
+  .clip-item.drag-over-row{border-top:2px solid var(--teal);}
+  .clip-item .drag-handle{cursor:grab;color:var(--muted);font-size:13px;user-select:none;}
+  .clip-item .drag-handle:active{cursor:grabbing;}
+  .clip-item .idx{
+    font-size:11px;font-weight:700;color:var(--bg);background:var(--amber);
+    min-width:20px;height:20px;border-radius:10px;padding:0 5px;
+    display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk',sans-serif;
+  }
   .clip-item .name{flex:1;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .clip-item .dur{font-size:11px;color:var(--muted);}
   .clip-item .tag{font-size:10px;background:var(--amber-dim);color:var(--amber);padding:2px 6px;border-radius:4px;}
@@ -121,6 +130,20 @@
   }
 
   .transport{width:100%;max-width:640px;margin-top:16px;}
+  .trim-bar{
+    position:relative;height:34px;background:#000;border-radius:7px;border:1px solid var(--border);
+  }
+  .trim-kept{
+    position:absolute;top:0;bottom:0;background:linear-gradient(180deg,var(--amber),var(--amber-dim));opacity:0.85;
+  }
+  .trim-handle{
+    position:absolute;top:-1px;bottom:-1px;width:14px;background:var(--amber);border-radius:4px;cursor:ew-resize;
+    box-shadow:0 0 0 1px rgba(0,0,0,0.4);
+  }
+  .trim-handle::after{
+    content:"";position:absolute;top:50%;left:50%;width:2px;height:12px;background:#1a1400;
+    transform:translate(-50%,-50%);border-radius:1px;
+  }
   .scrubber{width:100%;accent-color:var(--teal);}
   .time-row{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:4px;font-family:'Space Grotesk',sans-serif;}
 
@@ -132,14 +155,22 @@
   .sprockets{display:flex;justify-content:space-between;padding:0 2px;}
   .sprockets span{width:6px;height:6px;border-radius:50%;background:#33363f;}
   .filmstrip-track{display:flex;height:46px;margin:6px 0;border-radius:6px;overflow:hidden;background:#000;position:relative;}
+  .filmstrip-playhead{position:absolute;top:0;bottom:0;width:2px;background:#fff;box-shadow:0 0 4px rgba(255,255,255,0.8);pointer-events:none;z-index:5;}
   .filmstrip-clip{
     height:100%;border-right:1px solid #0f1115;position:relative;display:flex;align-items:center;justify-content:center;
-    font-size:10px;color:#ffe4b8;background:linear-gradient(180deg,#3a2c17,#211a10);cursor:pointer;
+    font-size:10px;color:#ffe4b8;background:linear-gradient(180deg,#3a2c17,#211a10);cursor:pointer;gap:3px;
   }
   .filmstrip-clip.rev::after{content:"◄◄";position:absolute;top:3px;right:4px;font-size:8px;color:var(--amber);}
   .filmstrip-clip.selected{outline:2px solid var(--amber);outline-offset:-2px;}
-  .sub-track{height:14px;margin-top:2px;position:relative;background:#111;border-radius:4px;overflow:hidden;}
-  .sub-bar{position:absolute;top:0;bottom:0;background:var(--teal);opacity:0.55;}
+  .filmstrip-clip.now-playing{outline:2px solid #fff;outline-offset:-2px;transition:outline-color .1s;}
+  .filmstrip-num{
+    background:rgba(0,0,0,0.5);color:var(--amber);font-size:9px;font-weight:700;
+    padding:1px 4px;border-radius:3px;font-family:'Space Grotesk',sans-serif;
+  }
+  .sub-track{height:20px;margin-top:4px;position:relative;background:#111;border-radius:4px;}
+  .sub-bar{position:absolute;top:0;bottom:0;background:var(--teal);opacity:0.55;cursor:grab;border-radius:3px;}
+  .sub-bar:hover{opacity:0.75;}
+  .sub-bar.selected{opacity:0.9;outline:1.5px solid #fff;}
 
   .subtitle-form{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:10px;}
   .subtitle-item{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12px;cursor:pointer;}
@@ -160,6 +191,49 @@
 </head>
 <body>
 
+<div id="pwGateOverlay" style="position:fixed;inset:0;z-index:9999;background:#0b0d10;display:flex;align-items:center;justify-content:center;">
+  <div style="width:min(320px,88vw);text-align:center;">
+    <div style="font-size:28px;margin-bottom:10px;">🔒</div>
+    <div style="color:var(--text);font-weight:600;margin-bottom:14px;">비밀번호를 입력해주세요</div>
+    <input type="password" id="pwGateInput" class="kr" style="width:100%;text-align:center;font-size:15px;padding:10px;" autocomplete="off">
+    <button class="primary" id="pwGateBtn" style="width:100%;margin-top:10px;">확인</button>
+    <div id="pwGateError" style="color:#ff6b6b;font-size:12px;margin-top:8px;height:14px;"></div>
+  </div>
+</div>
+<script>
+  // ⚠️ 진짜 보안이 아니라 가벼운 문턱이에요 (누구나 페이지 소스로 이 비밀번호를 볼 수 있어요).
+  // 여기 문자열만 원하는 비밀번호로 바꾸면 돼요.
+  const PW_GATE_PASSWORD = '여기에원하는비밀번호';
+  const PW_GATE_STORAGE_KEY = 'jh_moviemaker_unlocked';
+
+  (function(){
+    const overlay = document.getElementById('pwGateOverlay');
+    const input = document.getElementById('pwGateInput');
+    const btn = document.getElementById('pwGateBtn');
+    const errEl = document.getElementById('pwGateError');
+
+    function unlock(){
+      try{ localStorage.setItem(PW_GATE_STORAGE_KEY, '1'); }catch(e){}
+      overlay.style.display = 'none';
+    }
+    function tryUnlock(){
+      if(input.value === PW_GATE_PASSWORD){ unlock(); }
+      else{
+        errEl.textContent = '비밀번호가 올바르지 않아요.';
+        input.value = '';
+        input.focus();
+      }
+    }
+    try{
+      if(localStorage.getItem(PW_GATE_STORAGE_KEY) === '1'){ overlay.style.display = 'none'; }
+    }catch(e){}
+
+    btn.onclick = tryUnlock;
+    input.addEventListener('keydown', (e)=>{ if(e.key==='Enter') tryUnlock(); });
+    input.focus();
+  })();
+</script>
+
 <header>
   <div class="brand">
     <div class="dot"></div>
@@ -179,28 +253,88 @@
   <!-- LEFT: media & clips -->
   <div class="col">
     <div class="section">
-      <h2>1. 영상 업로드</h2>
-      <div class="dropzone" id="videoDrop">
-        <div style="font-size:22px;margin-bottom:4px;">＋</div>
-        비디오 파일 추가<br><span style="font-size:11px;">여러 개 선택 가능 · 순서대로 이어붙임</span>
+      <h2>프로젝트</h2>
+      <div class="row" style="gap:6px;">
+        <button class="secondary" id="saveProjectBtn" style="flex:1;">💾 저장</button>
+        <button class="secondary" id="loadProjectBtn" style="flex:1;">📂 불러오기</button>
+        <input type="file" id="loadProjectInput" accept="application/json" style="display:none;">
       </div>
-      <input type="file" id="videoInput" accept="video/*" multiple>
+      <div class="footer-note" style="margin-top:4px;">자막·배경 바·클립 위치/트림/설정을 파일 하나로 저장해요. 영상·음악 파일 자체는 용량 때문에 저장이 안 되니, 불러올 때 같은 파일들을 원래 이름 그대로 다시 올려주시면 설정이 자동으로 복원돼요.</div>
+      <div id="projectImportStatus" class="footer-note" style="margin-top:4px;color:var(--teal);"></div>
     </div>
 
     <div class="section">
-      <h2>클립 목록</h2>
+      <h2>1. 영상/사진 업로드</h2>
+      <div class="dropzone" id="videoDrop">
+        <div style="font-size:22px;margin-bottom:4px;">＋</div>
+        영상/사진 파일 추가<br><span style="font-size:11px;">여러 개 선택 가능 · 순서대로 이어붙임 (jpg, png 등 사진도 가능)</span>
+      </div>
+      <input type="file" id="videoInput" accept="video/*,image/*" multiple>
+      <label style="margin-top:12px;">목표 길이까지 반복해서 채우기</label>
+      <div class="row" style="gap:6px;">
+        <input type="text" id="targetDurationInput" placeholder="시간 단위 (예: 1 = 1시간, 0.5 = 30분)" class="kr" style="flex:1;">
+        <button class="secondary" id="fillDurationBtn">채우기</button>
+      </div>
+      <div class="footer-note" style="margin-top:4px;">클립을 하나하나 복제하지 않고, 지금 클립 목록 전체를 통째로 몇 번 반복할지만 기억해요. 그래서 클립 속성(위치·화질맞춤 등)을 바꾸면 반복되는 모든 구간에 한 번에 적용돼요. 배경 음악의 "반복 재생"이 켜져 있으면(기본값) 음악도 늘어난 영상 길이에 맞춰 자동으로 같이 반복돼요.</div>
+    </div>
+
+    <div class="section">
+      <div class="row-between">
+        <h2 style="margin:0;">클립 목록</h2>
+        <span class="val-badge" id="repeatCountBadge" style="display:none;"></span>
+      </div>
+      <div class="footer-note" style="margin-bottom:6px;">쉬프트 클릭으로 범위 선택, Ctrl(⌘) 클릭으로 개별 선택 · ⠿ 아이콘을 드래그하면 순서를 바꿀 수 있어요.</div>
+      <div id="multiSelectBar" class="row" style="align-items:center;gap:6px;margin-bottom:8px;display:none;background:var(--panel2);border:1px solid var(--border);border-radius:7px;padding:6px 8px;">
+        <span id="multiSelectCount" style="font-size:12px;color:var(--teal);flex:1;"></span>
+        <button class="secondary" id="dupSelectedBtn" style="font-size:11.5px;padding:6px 10px;">선택 항목 복제</button>
+      </div>
       <div id="clipList"></div>
       <div id="clipListEmpty" class="empty-hint">아직 추가된 영상이 없습니다</div>
+      <div id="repeatCountRow" class="row" style="align-items:center;gap:8px;margin-top:8px;display:none;">
+        <label style="margin:0;white-space:nowrap;">반복 횟수</label>
+        <input type="number" id="repeatCountInput" min="1" step="1" style="flex:1;">
+        <button class="icon-btn" id="repeatCountResetBtn" title="반복 해제 (1회)">✕</button>
+      </div>
     </div>
 
     <div class="section">
       <h2>2. 배경 음악 재생목록</h2>
       <div class="dropzone" id="audioDrop">
         <div style="font-size:22px;margin-bottom:4px;">♪</div>
-        mp3 / wav 추가 (여러 개 선택 가능)
+        mp3 / wav 추가 (여러 개 선택 가능)<br><span style="font-size:11px;">영상 파일을 넣으면 화면 없이 소리만 추출해서 추가돼요</span>
       </div>
-      <input type="file" id="audioInput" accept="audio/*" multiple>
+      <input type="file" id="audioInput" accept="audio/*,video/*" multiple>
       <div id="audioPanel"></div>
+    </div>
+
+    <div class="section">
+      <h2>워터마크/로고</h2>
+      <div class="subtitle-form">
+        <label class="row" style="align-items:center;gap:8px;">
+          <input type="checkbox" id="wmEnabled"> <span style="color:var(--text);">전체 영상에 로고 표시</span>
+        </label>
+        <button class="secondary" id="wmUploadBtn" style="width:100%;margin-top:8px;">🖼️ 로고 이미지 선택</button>
+        <input type="file" id="wmInput" accept="image/*">
+        <div class="footer-note" id="wmFileName" style="margin-top:2px;"></div>
+        <label style="margin-top:10px;">크기 <span class="val-badge" id="wmScaleVal">18%</span></label>
+        <input type="range" id="wmScale" min="3" max="50" step="1" value="18">
+        <label>불투명도 <span class="val-badge" id="wmOpacityVal">85%</span></label>
+        <input type="range" id="wmOpacity" min="10" max="100" step="1" value="85">
+        <button class="secondary" id="wmResetPosBtn" style="width:100%;margin-top:8px;">위치 초기화 (우측 하단)</button>
+        <div class="footer-note" style="margin-top:4px;">로고를 켜면 프리뷰 화면을 드래그해서 위치를 옮길 수 있어요. 모든 클립 위에 항상 같은 자리에 표시돼요.</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>오버레이 레이어</h2>
+      <div class="footer-note" style="margin-bottom:6px;">메인 영상과 동시에, 불투명도를 조절해서 겹쳐 보이게 재생돼요 (0초부터 순서대로 이어짐).</div>
+      <div class="dropzone" id="overlayDrop">
+        <div style="font-size:20px;margin-bottom:4px;">＋</div>
+        오버레이용 영상/사진 추가
+      </div>
+      <input type="file" id="overlayInput" accept="video/*,image/*" multiple>
+      <div id="overlayList" style="margin-top:8px;"></div>
+      <div id="overlayListEmpty" class="empty-hint">아직 추가된 오버레이가 없습니다</div>
     </div>
   </div>
 
@@ -209,7 +343,7 @@
     <div class="stage" id="stageWrap">
       <canvas id="previewCanvas"></canvas>
       <div class="stage-badge" id="stageBadge">1080 × 1920</div>
-      <div class="stage-hint" id="stageHint">클립을 선택하면 드래그로 위치를, 우측 패널에서 확대/축소를 조절할 수 있어요</div>
+      <div class="stage-hint" id="stageHint"></div>
     </div>
 
     <div class="transport">
@@ -221,9 +355,26 @@
       </div>
     </div>
 
+    <div class="trim-wrap" id="trimWrap" style="display:none;width:100%;max-width:640px;margin-top:14px;">
+      <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:6px;">선택한 클립 트림 — 양쪽 끝을 드래그해서 앞/뒤를 잘라내세요</label>
+      <div class="trim-bar" id="trimBar">
+        <div class="trim-kept" id="trimKept"></div>
+        <div class="trim-handle" id="trimHandleLeft" title="시작점"></div>
+        <div class="trim-handle" id="trimHandleRight" title="끝점"></div>
+      </div>
+      <div class="time-row" style="margin-top:4px;">
+        <span id="trimStartLabel">0:00</span>
+        <span id="trimKeptLabel" class="val-badge">전체 사용</span>
+        <span id="trimEndLabel">0:00</span>
+      </div>
+      <button class="secondary" id="trimResetBtn" style="width:100%;margin-top:6px;">트림 초기화</button>
+    </div>
+
     <div class="filmstrip">
       <div class="sprockets" id="sprocketsTop"></div>
-      <div class="filmstrip-track" id="filmstripTrack"></div>
+      <div class="filmstrip-track" id="filmstripTrack">
+        <div class="filmstrip-playhead" id="filmstripPlayhead"></div>
+      </div>
       <div class="sub-track" id="subTrack"></div>
       <div class="sprockets" id="sprocketsBottom"></div>
     </div>
@@ -239,8 +390,8 @@
         </div>
         <label style="margin-top:10px;">현재 자막/배경 바를 템플릿으로 저장</label>
         <div class="row" style="gap:6px;">
-          <input type="text" id="templateNameInput" placeholder="템플릿 이름 (예: 기본 인트로)" class="kr" style="flex:1;">
-          <button class="ghost" id="saveTemplateBtn">저장</button>
+          <input type="text" id="templateNameInput" placeholder="템플릿 이름 (예: 기본 인트로)" class="kr" style="flex:1;min-width:0;">
+          <button class="ghost" id="saveTemplateBtn" style="flex:none;width:auto;padding:8px 14px;font-size:12px;white-space:nowrap;">저장</button>
         </div>
         <div class="footer-note" style="margin-top:4px;">자막·배경 바의 내용, 위치, 크기, 글꼴을 통째로 저장해뒀다가 다음 영상에서 그대로 불러올 수 있어요. 이 브라우저에 저장돼서 다시 열어도 남아있어요.</div>
       </div>
@@ -317,6 +468,16 @@
         <input type="range" id="subSize" min="20" max="140" step="1" value="42">
         <label>불투명도 <span class="val-badge" id="subOpacityVal">100%</span></label>
         <input type="range" id="subOpacity" min="0" max="1" step="0.01" value="1">
+        <label>글자 색상</label>
+        <input type="color" id="subColor" value="#ffffff" style="width:100%;height:36px;padding:2px;">
+        <label class="row" style="align-items:center;gap:8px;margin-top:8px;">
+          <input type="checkbox" id="subOutlineChk" checked> <span style="color:var(--text);">테두리</span>
+        </label>
+        <input type="color" id="subOutlineColor" value="#000000" style="width:100%;height:30px;padding:2px;margin-top:4px;">
+        <label class="row" style="align-items:center;gap:8px;margin-top:8px;">
+          <input type="checkbox" id="subGlowChk"> <span style="color:var(--text);">번져 보이기 (글로우)</span>
+        </label>
+        <input type="color" id="subGlowColor" value="#ffffff" style="width:100%;height:30px;padding:2px;margin-top:4px;display:none;">
         <button class="ghost" id="addSubBtn" style="margin-top:10px;">+ 자막 추가</button>
       </div>
       <div id="subtitleList"></div>
@@ -325,6 +486,7 @@
     <div class="section">
       <h2>5. 내보내기</h2>
       <button class="primary" id="renderBtn">영상 만들기</button>
+      <button class="secondary" id="renderStopBtn" style="display:none;margin-top:8px;width:100%;">■ 내보내기 중지</button>
       <div class="progress-wrap"><div class="progress-bar" id="progressBar"></div></div>
       <div id="downloadArea"></div>
       <div class="footer-note">출력은 MP4(H.264/AAC) 형식이며, 화질/프레임 손실 없이 원본 해상도 그대로 매 프레임을 정확하게 인코딩합니다. 영상이 길수록 내보내기 시간이 오래 걸릴 수 있어요. 최신 크롬/엣지 브라우저에서만 동작합니다 (WebCodecs 필요).</div>
@@ -3785,14 +3947,42 @@ if (typeof module === "object" && typeof module.exports === "object") Object.ass
 <script>
 /* ============================= 상태 ============================= */
 let uid = 0;
+function updateClipDuration(clip){
+  const src = clip.sourceDuration || clip.duration;
+  const speed = (clip.fx && clip.fx.speed) || 1;
+  clip.duration = Math.max(0.05, (src - clip.trimStart - clip.trimEnd) / speed);
+}
+
 const nextId = () => 'id' + (uid++);
+function defaultFx(){
+  return {
+    kenBurns:false, scaleEnd:null, offsetXEnd:null, offsetYEnd:null,
+    shake:false, shakeIntensity:6,
+    filter:'none', brightness:100, contrast:100, saturation:100,
+    vignette:false, grain:false,
+    fadeIn:0, fadeOut:0,
+    speed:1,
+    flipH:false, flipV:false, rotation:0,
+    invert:false,
+    tint:false, tintColor:'#3a6fff', tintStrength:35,
+    censor:false, censorType:'blur', censorX:50, censorY:50, censorW:25, censorH:25,
+    vhs:false,
+    glitch:false, glitchIntensity:6,
+    chromaKey:false, chromaKeyColor:'#00ff00', chromaKeyTolerance:38
+  };
+}
 
 const state = {
   mode: 'shorts', // 'shorts' -> 1080x1920, 'long' -> 1920x1080
   clips: [],      // {id,file,url,el,duration,reverse,scale,offsetX,offsetY,name}
   selectedClipId: null,
+  watermark: { enabled:false, el:null, x:null, y:null, scale:0.18, opacity:0.85 }, // 전체 영상에 항상 나오는 로고/워터마크
+  overlayClips: [], // 메인 타임라인과 동시에, 불투명도를 조절해서 겹쳐 보여주는 별도 레이어
+  multiSelectedIds: new Set(), // 쉬프트/컨트롤 클릭으로 여러 클립 선택
+  multiSelectAnchor: null,
+  repeatCount: 1, // 클립 목록(사이클) 전체를 몇 번 반복할지 — 개별 복제 없이 통째로 반복
   audioPlaylist: [], // [{id,file,buffer,name,duration,volume}]
-  audioSettings: { fadeIn:1, fadeOut:1, crossfade:1.5, loopPlaylist:true },
+  audioSettings: { fadeIn:1, fadeOut:1, crossfade:1.5, loopPlaylist:true, showTrackSubtitles:false, layeredMode:false },
   subtitles: [],  // {id,text,start,end,opacity,x,y}
   selectedSubtitleId: null,
   bars: [], // {id,start,end,position,height,color,opacity,text,fontSize,fontFamily}
@@ -3812,13 +4002,19 @@ function fmtTime(s){
   const m = Math.floor(s/60), sec = Math.floor(s%60);
   return m + ':' + String(sec).padStart(2,'0');
 }
-function totalDuration(){
+function cycleDuration(){
   return state.clips.reduce((a,c)=>a+c.duration,0);
 }
+function totalDuration(){
+  return cycleDuration() * Math.max(1, state.repeatCount||1);
+}
 function clipAtTime(t){
+  if(!state.clips.length) return null;
+  const cDur = cycleDuration();
+  const localT = cDur>0 ? (t % cDur) : 0;
   let cursor = 0;
   for(const c of state.clips){
-    if(t < cursor + c.duration) return {clip:c, localTime: t-cursor, start:cursor};
+    if(localT < cursor + c.duration) return {clip:c, localTime: localT-cursor, start:cursor};
     cursor += c.duration;
   }
   const last = state.clips[state.clips.length-1];
@@ -3844,12 +4040,149 @@ videoInput.onchange = (e) => { addVideoFiles(e.target.files); e.target.value='';
   });
 });
 videoDropEl.addEventListener('drop', (e)=>{
-  const files = Array.from(e.dataTransfer.files || []).filter(f=>f.type.startsWith('video/'));
+  const files = Array.from(e.dataTransfer.files || []).filter(f=>f.type.startsWith('video/')||f.type.startsWith('image/'));
   if(files.length) addVideoFiles(files);
 });
 
+/* ============================= 프로젝트 저장/불러오기 =============================
+   영상/음악 파일 자체는 용량 문제로 저장할 수 없어서(브라우저가 로컬 파일을 영구 저장 못 함),
+   편집 설정(트림, 위치, 자막, 배경 바 등)만 JSON으로 저장하고, 불러올 때는 같은 파일들을
+   이름으로 다시 매칭해서 설정을 복원하는 방식이다. */
+let pendingProjectImport = null; // 파일 재매칭 대기 중인 불러온 프로젝트 데이터
+
+function saveProjectState(){
+  const project = {
+    version: 1,
+    savedAt: new Date().toISOString(),
+    mode: state.mode,
+    repeatCount: state.repeatCount,
+    clips: state.clips.map(c=>({
+      name: c.name.replace(/ \(복사본\)$/,''),
+      trimStart: c.trimStart, trimEnd: c.trimEnd,
+      reverse: c.reverse, scale: c.scale, offsetX: c.offsetX, offsetY: c.offsetY,
+      fitMode: c.fitMode, fadeTransition: c.fadeTransition, transitionDuration: c.transitionDuration,
+      audioMuted: c.audioMuted, fx: c.fx
+    })),
+    subtitles: state.subtitles,
+    bars: state.bars,
+    audioPlaylist: state.audioPlaylist.map(t=>({ name:t.name, volume:t.volume })),
+    audioSettings: state.audioSettings
+  };
+  const blob = new Blob([JSON.stringify(project, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'jh_moviemaker_project.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 5000);
+}
+
+function loadProjectFile(file){
+  const reader = new FileReader();
+  reader.onload = (e)=>{
+    let data;
+    try{ data = JSON.parse(e.target.result); }
+    catch(err){ alert('프로젝트 파일을 읽지 못했습니다: 형식이 올바르지 않아요.'); return; }
+    pendingProjectImport = data;
+    pendingProjectImport._clipsConsumed = new Array((data.clips||[]).length).fill(false);
+
+    // 파일과 무관한 항목은 바로 복원
+    state.subtitles = data.subtitles || [];
+    state.bars = data.bars || [];
+    Object.assign(state.audioSettings, data.audioSettings||{});
+    if(data.mode && data.mode!==state.mode) setMode(data.mode);
+    if(data.repeatCount) state.repeatCount = data.repeatCount;
+    renderSubtitleList(); renderSubTrack(); renderBarList(); renderClipList(); renderTimeline();
+
+    const nClips = (data.clips||[]).length, nAudio = (data.audioPlaylist||[]).length;
+    document.getElementById('projectImportStatus').textContent =
+      `자막/배경 바 복원 완료. 이제 영상 ${nClips}개, 음악 ${nAudio}개를 원래 파일명 그대로 다시 올려주시면 위치·트림 등 설정이 자동으로 복원돼요.`;
+  };
+  reader.readAsText(file);
+}
+
+function applySavedClipSettings(clip, saved){
+  clip.trimStart = saved.trimStart||0;
+  clip.trimEnd = saved.trimEnd||0;
+  updateClipDuration(clip);
+  clip.reverse = !!saved.reverse;
+  clip.scale = saved.scale||1;
+  clip.offsetX = saved.offsetX||0;
+  clip.offsetY = saved.offsetY||0;
+  clip.fitMode = saved.fitMode||'cover';
+  clip.fadeTransition = !!saved.fadeTransition;
+  clip.transitionDuration = saved.transitionDuration||0.5;
+  clip.audioMuted = !!saved.audioMuted;
+  clip.fx = saved.fx ? { ...defaultFx(), ...saved.fx } : defaultFx();
+}
+
+async function tryMatchPendingClips(){
+  if(!pendingProjectImport || !pendingProjectImport.clips) return;
+  const saved = pendingProjectImport.clips;
+  const consumed = pendingProjectImport._clipsConsumed;
+
+  // 1단계: 아직 매칭 안 된 새 클립을 이름으로 매칭
+  const matchedByName = new Map();
+  state.clips.forEach(clip=>{
+    if(clip._importMatched) { if(!matchedByName.has(clip.name)) matchedByName.set(clip.name, clip); return; }
+    const idx = saved.findIndex((sc,i)=>!consumed[i] && sc.name===clip.name);
+    if(idx!==-1){
+      applySavedClipSettings(clip, saved[idx]);
+      consumed[idx] = true;
+      clip._importMatched = true;
+      matchedByName.set(clip.name, clip);
+    }
+  });
+
+  // 2단계: 같은 파일이 여러 번(복제) 쓰였던 경우, 이미 매칭된 클립을 복제해서 나머지를 채움
+  for(let i=0;i<saved.length;i++){
+    if(consumed[i]) continue;
+    const sc = saved[i];
+    const src = matchedByName.get(sc.name);
+    if(!src) continue; // 아직 이 이름의 원본이 안 올라옴 — 나중에 다시 시도
+    const copy = await cloneClipObject(src, '', false);
+    applySavedClipSettings(copy, sc);
+    copy._importMatched = true;
+    const srcIdx = state.clips.findIndex(c=>c.id===src.id);
+    state.clips.splice(srcIdx+1, 0, copy);
+    consumed[i] = true;
+  }
+
+  const total = consumed.length, done = consumed.filter(Boolean).length;
+  document.getElementById('projectImportStatus').textContent =
+    done>=total ? `✓ 영상 설정 복원 완료 (${done}/${total}개)`
+                : `영상 설정 복원 중… (${done}/${total}개). 나머지 파일도 원래 이름 그대로 올려주세요.`;
+  renderClipList(); renderTimeline(); renderInspector(); updateScrubberRange();
+}
+
+function tryMatchPendingAudio(){
+  if(!pendingProjectImport || !pendingProjectImport.audioPlaylist) return;
+  const saved = pendingProjectImport.audioPlaylist;
+  state.audioPlaylist.forEach(track=>{
+    if(track._importMatched) return;
+    const sc = saved.find(s=>s.name===track.name);
+    if(sc){
+      track.volume = sc.volume!=null ? sc.volume : 0.9;
+      track._importMatched = true;
+    }
+  });
+  renderAudioPanel();
+}
+
+document.getElementById('saveProjectBtn').onclick = saveProjectState;
+document.getElementById('loadProjectBtn').onclick = ()=>document.getElementById('loadProjectInput').click();
+document.getElementById('loadProjectInput').onchange = (e)=>{
+  if(e.target.files[0]) loadProjectFile(e.target.files[0]);
+  e.target.value = '';
+};
+
+const DEFAULT_IMAGE_DURATION = 3;
+
 function addVideoFiles(fileList){
   Array.from(fileList).forEach(file=>{
+    if(file.type.startsWith('image/')){
+      addImageFile(file);
+      return;
+    }
     const url = URL.createObjectURL(file);
     const el = document.createElement('video');
     el.preload = 'metadata';
@@ -3872,10 +4205,11 @@ function addVideoFiles(fileList){
       clearTimeout(timeoutId);
       removeLoadingRow(file.name);
       const clip = {
-        id: nextId(), file, url, el,
-        duration: el.duration,
+        id: nextId(), file, url, el, isImage:false,
+        duration: el.duration, sourceDuration: el.duration, trimStart:0, trimEnd:0, audioMuted:false, videoHidden:false,
         reverse:false, scale:1, offsetX:0, offsetY:0, fitMode:'cover',
-        fadeTransition:false, transitionDuration:0.5,
+        fadeTransition:false, transitionDuration:0.5, transitionType:'crossfade',
+        fx: defaultFx(),
         name:file.name
       };
       state.clips.push(clip);
@@ -3883,6 +4217,7 @@ function addVideoFiles(fileList){
       renderClipList();
       renderTimeline();
       updateScrubberRange();
+      if(pendingProjectImport) tryMatchPendingClips();
     });
 
     el.addEventListener('error', ()=>{
@@ -3898,6 +4233,205 @@ function addVideoFiles(fileList){
     el.src = url;
   });
 }
+
+function addImageFile(file){
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  showLoadingRow(file.name);
+
+  let settled = false;
+  const timeoutId = setTimeout(()=>{
+    if(settled) return;
+    settled = true;
+    removeLoadingRow(file.name);
+    alert(`"${file.name}" 사진을 불러오는 데 시간이 너무 오래 걸려 중단했습니다.`);
+  }, 8000);
+
+  img.onload = ()=>{
+    if(settled) return;
+    settled = true;
+    clearTimeout(timeoutId);
+    removeLoadingRow(file.name);
+    const clip = {
+      id: nextId(), file, url, el: img, isImage:true,
+      duration: DEFAULT_IMAGE_DURATION, sourceDuration: DEFAULT_IMAGE_DURATION, trimStart:0, trimEnd:0, audioMuted:true,
+      reverse:false, scale:1, offsetX:0, offsetY:0, fitMode:'cover',
+      fadeTransition:false, transitionDuration:0.5, transitionType:'crossfade',
+      fx: defaultFx(),
+      name:file.name
+    };
+    state.clips.push(clip);
+    if(!state.selectedClipId) selectClip(clip.id);
+    renderClipList();
+    renderTimeline();
+    updateScrubberRange();
+    if(pendingProjectImport) tryMatchPendingClips();
+  };
+
+  img.onerror = ()=>{
+    if(settled) return;
+    settled = true;
+    clearTimeout(timeoutId);
+    removeLoadingRow(file.name);
+    alert(`"${file.name}" 사진을 불러오지 못했습니다. jpg, png 같은 일반적인 이미지 형식인지 확인해주세요.`);
+    URL.revokeObjectURL(url);
+  };
+
+  img.src = url;
+}
+
+function addOverlayFiles(fileList){
+  Array.from(fileList).forEach(file=>{
+    if(file.type.startsWith('image/')){
+      addOverlayImageFile(file);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    const el = document.createElement('video');
+    el.preload = 'metadata';
+    el.playsInline = true;
+    el.muted = true;
+    let settled = false;
+    const timeoutId = setTimeout(()=>{
+      if(settled) return;
+      settled = true;
+      alert(`"${file.name}" 파일을 불러오는 데 시간이 너무 오래 걸려 중단했습니다.`);
+    }, 8000);
+    el.addEventListener('loadedmetadata', ()=>{
+      if(settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      const clip = {
+        id: nextId(), file, url, el, isImage:false,
+        duration: el.duration, sourceDuration: el.duration, trimStart:0, trimEnd:0, audioMuted:false, videoHidden:false,
+        reverse:false, scale:1, offsetX:0, offsetY:0, fitMode:'cover',
+        fadeTransition:false, transitionDuration:0.5, transitionType:'crossfade',
+        fx: defaultFx(), opacity:0.7,
+        name:file.name
+      };
+      state.overlayClips.push(clip);
+      renderOverlayList();
+      updateScrubberRange();
+    });
+    el.addEventListener('error', ()=>{
+      if(settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      alert(`"${file.name}" 파일을 재생할 수 없습니다. 지원하는 형식(mp4, webm 등)인지 확인해주세요.`);
+      URL.revokeObjectURL(url);
+    });
+    el.src = url;
+  });
+}
+
+function addOverlayImageFile(file){
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  let settled = false;
+  const timeoutId = setTimeout(()=>{
+    if(settled) return;
+    settled = true;
+    alert(`"${file.name}" 사진을 불러오지 못했습니다.`);
+  }, 8000);
+  img.onload = ()=>{
+    if(settled) return;
+    settled = true;
+    clearTimeout(timeoutId);
+    const clip = {
+      id: nextId(), file, url, el: img, isImage:true,
+      duration: DEFAULT_IMAGE_DURATION, sourceDuration: DEFAULT_IMAGE_DURATION, trimStart:0, trimEnd:0, audioMuted:true,
+      reverse:false, scale:1, offsetX:0, offsetY:0, fitMode:'cover',
+      fadeTransition:false, transitionDuration:0.5, transitionType:'crossfade',
+      fx: defaultFx(), opacity:0.7,
+      name:file.name
+    };
+    state.overlayClips.push(clip);
+    renderOverlayList();
+    updateScrubberRange();
+  };
+  img.onerror = ()=>{
+    if(settled) return;
+    settled = true;
+    clearTimeout(timeoutId);
+    alert(`"${file.name}" 사진을 불러오지 못했습니다.`);
+    URL.revokeObjectURL(url);
+  };
+  img.src = url;
+}
+
+function renderOverlayList(){
+  const wrap = document.getElementById('overlayList');
+  const empty = document.getElementById('overlayListEmpty');
+  wrap.innerHTML = '';
+  empty.style.display = state.overlayClips.length ? 'none' : 'block';
+  state.overlayClips.forEach((c,i)=>{
+    const div = document.createElement('div');
+    div.className = 'clip-item';
+    div.draggable = true;
+    div.dataset.clipId = c.id;
+    div.innerHTML = `
+      <span class="drag-handle" title="드래그해서 순서 바꾸기">⠿</span>
+      <span class="idx">${i+1}</span>
+      <span class="name kr">${c.isImage?'🖼️ ':''}${c.name}</span>
+      <span class="dur mono">${fmtTime(c.duration)}</span>
+      <button class="icon-btn danger" data-act="del">✕</button>
+    `;
+    const opacityRow = document.createElement('div');
+    opacityRow.innerHTML = `
+      <label style="margin:4px 0 2px 0;font-size:11px;">불투명도 <span class="val-badge">${Math.round(c.opacity*100)}%</span></label>
+      <input type="range" min="0" max="1" step="0.01" value="${c.opacity}" style="margin-bottom:8px;">
+    `;
+    const slider = opacityRow.querySelector('input');
+    const badge = opacityRow.querySelector('.val-badge');
+    slider.oninput = (e)=>{
+      c.opacity = parseFloat(e.target.value);
+      badge.textContent = Math.round(c.opacity*100)+'%';
+    };
+    div.querySelector('[data-act=del]').onclick = ()=>{
+      state.overlayClips = state.overlayClips.filter(x=>x.id!==c.id);
+      renderOverlayList(); updateScrubberRange();
+    };
+    div.addEventListener('dragstart', (e)=>{
+      e.dataTransfer.setData('text/plain', c.id);
+      e.dataTransfer.effectAllowed = 'move';
+      div.classList.add('dragging-row');
+    });
+    div.addEventListener('dragend', ()=>div.classList.remove('dragging-row'));
+    div.addEventListener('dragover', (e)=>{ e.preventDefault(); e.dataTransfer.dropEffect='move'; div.classList.add('drag-over-row'); });
+    div.addEventListener('dragleave', ()=>div.classList.remove('drag-over-row'));
+    div.addEventListener('drop', (e)=>{
+      e.preventDefault();
+      div.classList.remove('drag-over-row');
+      const draggedId = e.dataTransfer.getData('text/plain');
+      if(!draggedId || draggedId===c.id) return;
+      const fromIdx = state.overlayClips.findIndex(x=>x.id===draggedId);
+      const toIdxOriginal = state.overlayClips.findIndex(x=>x.id===c.id);
+      if(fromIdx===-1 || toIdxOriginal===-1) return;
+      const [moved] = state.overlayClips.splice(fromIdx,1);
+      let insertAt = state.overlayClips.findIndex(x=>x.id===c.id);
+      if(fromIdx < toIdxOriginal) insertAt += 1;
+      state.overlayClips.splice(insertAt,0,moved);
+      renderOverlayList();
+    });
+    wrap.appendChild(div);
+    wrap.appendChild(opacityRow);
+  });
+}
+
+const overlayDropEl = document.getElementById('overlayDrop');
+const overlayInputEl = document.getElementById('overlayInput');
+overlayDropEl.onclick = () => overlayInputEl.click();
+overlayInputEl.onchange = (e)=>{ addOverlayFiles(e.target.files); e.target.value=''; };
+['dragenter','dragover'].forEach(evt=>{
+  overlayDropEl.addEventListener(evt, (e)=>{ e.preventDefault(); e.stopPropagation(); overlayDropEl.classList.add('drag-over'); });
+});
+['dragleave','drop'].forEach(evt=>{
+  overlayDropEl.addEventListener(evt, (e)=>{ e.preventDefault(); e.stopPropagation(); overlayDropEl.classList.remove('drag-over'); });
+});
+overlayDropEl.addEventListener('drop', (e)=>{
+  const files = Array.from(e.dataTransfer.files || []).filter(f=>f.type.startsWith('video/')||f.type.startsWith('image/'));
+  if(files.length) addOverlayFiles(files);
+});
 
 function showLoadingRow(name){
   const wrap = document.getElementById('clipList');
@@ -3925,6 +4459,7 @@ function selectClip(id){
   renderTimeline();
   renderInspector();
   renderSubtitleList();
+  renderTrimBar();
 }
 
 function renderClipList(){
@@ -3933,62 +4468,209 @@ function renderClipList(){
   wrap.innerHTML = '';
   empty.style.display = state.clips.length ? 'none' : 'block';
   state.clips.forEach((c,i)=>{
+    const isMultiSelected = state.multiSelectedIds.has(c.id);
     const div = document.createElement('div');
-    div.className = 'clip-item' + (c.id===state.selectedClipId ? ' selected' : '');
+    div.className = 'clip-item'
+      + (c.id===state.selectedClipId ? ' selected' : '')
+      + (isMultiSelected ? ' multi-selected' : '');
+    div.draggable = true;
+    div.dataset.clipId = c.id;
     div.innerHTML = `
+      <span class="drag-handle" title="드래그해서 순서 바꾸기">⠿</span>
       <span class="idx">${i+1}</span>
       <span class="name kr">${c.name}</span>
       <span class="dur mono">${fmtTime(c.duration)}</span>
       ${c.reverse ? '<span class="tag">역방향</span>' : ''}
       <button class="icon-btn" data-act="dup" title="복제해서 이어붙이기">⧉</button>
-      <button class="icon-btn" data-act="up" title="위로">▲</button>
-      <button class="icon-btn" data-act="down" title="아래로">▼</button>
       <button class="icon-btn danger" data-act="del" title="삭제">✕</button>
     `;
     div.addEventListener('click', (e)=>{
       if(e.target.dataset.act) return;
+      if(e.shiftKey && state.multiSelectAnchor){
+        const anchorIdx = state.clips.findIndex(x=>x.id===state.multiSelectAnchor);
+        if(anchorIdx!==-1){
+          const [start,end] = anchorIdx<i ? [anchorIdx,i] : [i,anchorIdx];
+          state.multiSelectedIds = new Set(state.clips.slice(start,end+1).map(x=>x.id));
+          renderClipList();
+          return;
+        }
+      }
+      if(e.ctrlKey || e.metaKey){
+        if(state.multiSelectedIds.has(c.id)) state.multiSelectedIds.delete(c.id);
+        else state.multiSelectedIds.add(c.id);
+        state.multiSelectAnchor = c.id;
+        renderClipList();
+        return;
+      }
+      state.multiSelectedIds = new Set([c.id]);
+      state.multiSelectAnchor = c.id;
       selectClip(c.id);
     });
-    div.querySelector('[data-act=dup]').onclick = ()=>duplicateClip(c.id);
-    div.querySelector('[data-act=up]').onclick = ()=>moveClip(i,-1);
-    div.querySelector('[data-act=down]').onclick = ()=>moveClip(i,1);
+    div.querySelector('[data-act=dup]').onclick = ()=>{
+      if(state.multiSelectedIds.size>1 && state.multiSelectedIds.has(c.id)) duplicateSelectedClips();
+      else duplicateClip(c.id);
+    };
     div.querySelector('[data-act=del]').onclick = ()=>deleteClip(c.id);
+
+    div.addEventListener('dragstart', (e)=>{
+      e.dataTransfer.setData('text/plain', c.id);
+      e.dataTransfer.effectAllowed = 'move';
+      div.classList.add('dragging-row');
+    });
+    div.addEventListener('dragend', ()=>{ div.classList.remove('dragging-row'); });
+    div.addEventListener('dragover', (e)=>{
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      div.classList.add('drag-over-row');
+    });
+    div.addEventListener('dragleave', ()=>{ div.classList.remove('drag-over-row'); });
+    div.addEventListener('drop', (e)=>{
+      e.preventDefault();
+      div.classList.remove('drag-over-row');
+      const draggedId = e.dataTransfer.getData('text/plain');
+      if(!draggedId || draggedId===c.id) return;
+      const fromIdx = state.clips.findIndex(x=>x.id===draggedId);
+      const toIdxOriginal = state.clips.findIndex(x=>x.id===c.id);
+      if(fromIdx===-1 || toIdxOriginal===-1) return;
+      const [moved] = state.clips.splice(fromIdx,1);
+      let insertAt = state.clips.findIndex(x=>x.id===c.id);
+      if(fromIdx < toIdxOriginal) insertAt += 1; // 아래로 옮기는 경우 타겟 바로 다음 자리에 꽂아야 실제로 이동함
+      state.clips.splice(insertAt,0,moved);
+      renderClipList(); renderTimeline(); updateScrubberRange();
+    });
+
     wrap.appendChild(div);
   });
+  renderRepeatCountUI();
+  renderMultiSelectUI();
 }
 
-function duplicateClip(id){
+function renderMultiSelectUI(){
+  const bar = document.getElementById('multiSelectBar');
+  if(!bar) return;
+  const n = state.multiSelectedIds.size;
+  if(n>1){
+    bar.style.display = 'flex';
+    document.getElementById('multiSelectCount').textContent = `${n}개 선택됨`;
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+async function duplicateSelectedClips(){
+  const ids = state.clips.map(c=>c.id).filter(id=>state.multiSelectedIds.has(id)); // 원래 순서 유지
+  if(!ids.length) return;
+  const lastIdx = Math.max(...ids.map(id=>state.clips.findIndex(c=>c.id===id)));
+  const copies = [];
+  for(const id of ids){
+    const src = state.clips.find(c=>c.id===id);
+    if(!src) continue;
+    copies.push(await cloneClipObject(src, ' (복사본)', false));
+  }
+  state.clips.splice(lastIdx+1, 0, ...copies);
+  state.multiSelectedIds = new Set(copies.map(c=>c.id));
+  state.multiSelectAnchor = copies.length ? copies[copies.length-1].id : null;
+  renderClipList(); renderTimeline(); updateScrubberRange();
+}
+document.getElementById('dupSelectedBtn').onclick = duplicateSelectedClips;
+
+function renderRepeatCountUI(){
+  const badge = document.getElementById('repeatCountBadge');
+  const row = document.getElementById('repeatCountRow');
+  const input = document.getElementById('repeatCountInput');
+  const n = Math.max(1, state.repeatCount||1);
+  if(n>1){
+    badge.style.display = 'inline';
+    badge.textContent = `× ${n}회 반복 (총 ${fmtTime(totalDuration())})`;
+    row.style.display = 'flex';
+  } else {
+    badge.style.display = 'none';
+    row.style.display = 'none';
+  }
+  if(document.activeElement !== input) input.value = n;
+}
+document.getElementById('repeatCountInput').oninput = (e)=>{
+  const n = Math.max(1, Math.round(parseFloat(e.target.value)||1));
+  state.repeatCount = n;
+  renderTimeline(); updateScrubberRange();
+  document.getElementById('repeatCountBadge').textContent = `× ${n}회 반복 (총 ${fmtTime(totalDuration())})`;
+};
+document.getElementById('repeatCountResetBtn').onclick = ()=>{
+  state.repeatCount = 1;
+  renderClipList(); renderTimeline(); updateScrubberRange();
+};
+
+async function cloneClipObject(src, nameSuffix, shareElement){
+  let el;
+  if(src.isImage){
+    // 사진은 seek(재생 위치) 개념이 없어서 여러 클립이 같은 <img> 엘리먼트를 공유해도 항상 안전함
+    el = src.el;
+  } else if(shareElement){
+    el = src.el; // 재생 시점이 겹치지 않는 단순 반복이면 같은 소스 엘리먼트를 공유해서 메모리/디코더 부담을 줄임
+  } else {
+    el = document.createElement('video');
+    el.src = src.url;
+    el.preload = 'metadata';
+    el.playsInline = true;
+    el.muted = true;
+    // 새로 만든 엘리먼트가 메타데이터를 다 불러오기 전에 재생에 쓰이면 화면이 계속 까맣게 나오는 문제가 있어서,
+    // 준비될 때까지 기다린다 (너무 오래 걸리면 포기하고 그냥 진행 — 완전히 멈추는 것보다 나음)
+    await new Promise(resolve=>{
+      let done=false;
+      const finish=()=>{ if(done) return; done=true; el.removeEventListener('loadedmetadata', onLoad); resolve(); };
+      const onLoad = ()=>finish();
+      el.addEventListener('loadedmetadata', onLoad, {once:true});
+      setTimeout(finish, 8000);
+    });
+  }
+  return {
+    id: nextId(), file:src.file, url:src.url, el, isImage:!!src.isImage,
+    duration:src.duration, sourceDuration:src.sourceDuration, trimStart:src.trimStart, trimEnd:src.trimEnd, audioMuted:src.audioMuted, videoHidden:src.videoHidden,
+    reverse:src.reverse,
+    scale:src.scale, offsetX:src.offsetX, offsetY:src.offsetY, fitMode:src.fitMode,
+    fadeTransition:src.fadeTransition, transitionDuration:src.transitionDuration, transitionType:src.transitionType||'crossfade',
+    fx: { ...(src.fx||defaultFx()) },
+    name: src.name + (nameSuffix||'')
+  };
+}
+
+async function duplicateClip(id){
   const idx = state.clips.findIndex(c=>c.id===id);
   if(idx===-1) return;
   const src = state.clips[idx];
-  const el = document.createElement('video');
-  el.src = src.url;
-  el.preload = 'metadata';
-  el.playsInline = true;
-  el.muted = true;
-  const copy = {
-    id: nextId(), file:src.file, url:src.url, el,
-    duration:src.duration, reverse:src.reverse,
-    scale:src.scale, offsetX:src.offsetX, offsetY:src.offsetY, fitMode:src.fitMode,
-    fadeTransition:src.fadeTransition, transitionDuration:src.transitionDuration,
-    name: src.name + ' (복사본)'
-  };
-  state.clips.splice(idx+1, 0, copy);
+  const copy = await cloneClipObject(src, ' (복사본)', false);
+  const stillThere = state.clips.findIndex(c=>c.id===id);
+  const insertAt = stillThere===-1 ? state.clips.length : stillThere+1;
+  state.clips.splice(insertAt, 0, copy);
   renderClipList(); renderTimeline(); updateScrubberRange();
 }
 
-function moveClip(i, dir){
-  const j = i+dir;
-  if(j<0 || j>=state.clips.length) return;
-  [state.clips[i], state.clips[j]] = [state.clips[j], state.clips[i]];
-  renderClipList(); renderTimeline(); updateScrubberRange();
+function parseDurationHoursInput(str){
+  str = (str||'').trim();
+  if(!str) return null;
+  const hours = parseFloat(str);
+  if(isNaN(hours)) return null;
+  return hours * 3600;
 }
+
+document.getElementById('fillDurationBtn').onclick = ()=>{
+  const targetSec = parseDurationHoursInput(document.getElementById('targetDurationInput').value);
+  if(!targetSec || targetSec<=0){ alert('목표 길이를 시간 단위 숫자로 입력해주세요 (예: 1 = 1시간, 0.5 = 30분).'); return; }
+  if(!state.clips.length){ alert('영상을 먼저 추가해주세요.'); return; }
+  const cDur = cycleDuration();
+  if(cDur<=0) return;
+  state.repeatCount = Math.max(1, Math.ceil(targetSec/cDur));
+  renderClipList(); renderTimeline(); updateScrubberRange();
+};
 
 function deleteClip(id){
   const idx = state.clips.findIndex(c=>c.id===id);
   if(idx===-1) return;
-  URL.revokeObjectURL(state.clips[idx].url);
+  const url = state.clips[idx].url;
   state.clips.splice(idx,1);
+  const stillUsed = state.clips.some(c=>c.url===url);
+  if(!stillUsed) URL.revokeObjectURL(url); // 다른 클립(복제본 등)이 같은 원본을 아직 쓰고 있으면 URL을 지우지 않음
+  state.multiSelectedIds.delete(id);
   if(state.selectedClipId===id){
     state.selectedClipId = state.clips[0] ? state.clips[0].id : null;
     state.previewMode = state.selectedClipId ? 'edit' : 'scrub';
@@ -4004,39 +4686,183 @@ function renderInspector(){
     box.innerHTML = '<h2>클립 속성</h2><div class="empty-hint">클립을 선택해주세요</div>';
     return;
   }
+  if(!clip.fx) clip.fx = defaultFx();
+  const fx = clip.fx;
   box.innerHTML = `
     <h2>클립 속성</h2>
     <div class="row-between">
-      <span class="kr" style="font-size:12.5px;">${clip.name}</span>
+      <span class="kr" style="font-size:12.5px;">${clip.isImage?'🖼️ ':''}${clip.name}</span>
       <span class="val-badge">${fmtTime(clip.duration)}</span>
     </div>
+    ${clip.isImage ? `
+    <label style="margin-top:14px;">사진 표시 시간 <span class="val-badge" id="imgDurVal">${clip.duration.toFixed(1)}s</span></label>
+    <input type="range" id="imgDurSlider" min="0.5" max="30" step="0.1" value="${clip.duration}">
+    ` : `
     <label class="row" style="align-items:center;gap:8px;margin-top:14px;">
       <input type="checkbox" id="revChk" ${clip.reverse?'checked':''}> <span style="color:var(--text);">역방향 재생 (영상을 거꾸로 붙이기)</span>
     </label>
+    `}
     <label class="row" style="align-items:center;gap:8px;margin-top:8px;">
       <input type="checkbox" id="transChk" ${clip.fadeTransition?'checked':''}> <span style="color:var(--text);">다음 클립과 부드럽게 전환 (크로스페이드)</span>
     </label>
     <div id="transDurWrap" style="${clip.fadeTransition?'':'display:none;'}">
-      <label>전환 길이 <span class="val-badge" id="transDurVal">${(clip.transitionDuration||0.5).toFixed(1)}s</span></label>
+      <label>전환 종류</label>
+      <select id="transTypeSelect" class="kr">
+        <option value="crossfade" ${(!clip.transitionType||clip.transitionType==='crossfade')?'selected':''}>크로스페이드 (겹치며 자연스럽게)</option>
+        <option value="slide" ${clip.transitionType==='slide'?'selected':''}>밀어내기 (슬라이드)</option>
+        <option value="zoom" ${clip.transitionType==='zoom'?'selected':''}>확대되며 전환</option>
+        <option value="fadeblack" ${clip.transitionType==='fadeblack'?'selected':''}>검은 화면 거쳐 전환</option>
+        <option value="fadewhite" ${clip.transitionType==='fadewhite'?'selected':''}>하얀 화면 거쳐 전환</option>
+      </select>
+      <label style="margin-top:8px;">전환 길이 <span class="val-badge" id="transDurVal">${(clip.transitionDuration||0.5).toFixed(1)}s</span></label>
       <input type="range" id="transDurSlider" min="0.1" max="2" step="0.1" value="${clip.transitionDuration||0.5}">
     </div>
-    <div class="footer-note" style="margin-top:2px;">같은 영상을 반복해서 이어붙일 때 화면이 뚝 끊기며 깜빡이는 걸 부드러운 디졸브로 없애줘요.</div>
+    ${clip.isImage ? '' : `
+    <label class="row" style="align-items:center;gap:8px;margin-top:8px;">
+      <input type="checkbox" id="audioMuteChk" ${clip.audioMuted?'checked':''}> <span style="color:var(--text);">${clip.audioMuted?'🔇':'🔊'} 이 클립의 원본 소리 ${clip.audioMuted?'꺼짐':'켜짐'} (배경 음악과 같이 최종 영상에 들어가요)</span>
+    </label>
+    `}
     <label>화면 맞춤</label>
     <div class="row" style="gap:6px;">
       <button class="secondary" id="fitCoverBtn" style="flex:1;${clip.fitMode!=='contain'?'border-color:var(--amber);color:var(--amber);':''}">꽉 채우기</button>
       <button class="secondary" id="fitContainBtn" style="flex:1;${clip.fitMode==='contain'?'border-color:var(--amber);color:var(--amber);':''}">화면에 맞추기</button>
     </div>
-    <div class="footer-note" style="margin-top:4px;">꽉 채우기: 프레임을 가득 채우되 영상 일부가 잘려요. 화면에 맞추기: 잘리는 부분 없이 영상 전체가 한 번에 보이도록 자동으로 맞춰줘요 (남는 공간은 검은 여백) — 뉴스 등 화면 전체가 중요한 영상에 추천.</div>
     <label style="margin-top:12px;">확대/축소 <span class="val-badge" id="scaleVal">${clip.scale.toFixed(2)}x</span></label>
-    <input type="range" id="scaleSlider" min="0.5" max="3" step="0.01" value="${clip.scale}">
+    <input type="range" id="scaleSlider" min="0.1" max="10" step="0.01" value="${clip.scale}">
     <button class="secondary" id="resetPosBtn" style="margin-top:10px;width:100%;">위치/배율 초기화</button>
-    <div class="footer-note">프리뷰 화면을 드래그하면 화면 안에서 영상 위치를 옮길 수 있어요.</div>
+    <div class="footer-note">프리뷰 화면을 드래그하면 화면 안에서 ${clip.isImage?'사진':'영상'} 위치를 옮길 수 있어요.</div>
+
+    <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border);">
+      <h2 style="margin-bottom:10px;">✨ 효과</h2>
+
+      <label class="row" style="align-items:center;gap:8px;">
+        <input type="checkbox" id="fxKenBurns" ${fx.kenBurns?'checked':''}> <span style="color:var(--text);">서서히 확대/축소·이동 (Ken Burns)</span>
+      </label>
+      <div id="fxKenBurnsWrap" style="${fx.kenBurns?'':'display:none;'}margin-top:6px;">
+        <div class="footer-note">지금 위/왼쪽의 "확대/축소"와 프리뷰에서 드래그한 위치가 <b>시작</b> 지점이에요. 아래 슬라이더로 <b>끝</b> 지점의 확대 배율을 정해주세요 (끝 지점 위치는 시작과 같게 유지돼요).</div>
+        <label>끝 지점 확대 배율 <span class="val-badge" id="fxScaleEndVal">${(fx.scaleEnd!=null?fx.scaleEnd:clip.scale*1.15).toFixed(2)}x</span></label>
+        <input type="range" id="fxScaleEnd" min="0.1" max="10" step="0.01" value="${fx.scaleEnd!=null?fx.scaleEnd:clip.scale*1.15}">
+        <button class="secondary" id="fxKenBurnsSwapBtn" style="width:100%;margin-top:4px;">시작 ↔ 끝 바꾸기 (축소 효과로 전환)</button>
+      </div>
+
+      <label class="row" style="align-items:center;gap:8px;margin-top:12px;">
+        <input type="checkbox" id="fxShake" ${fx.shake?'checked':''}> <span style="color:var(--text);">카메라 흔들림</span>
+      </label>
+      <div id="fxShakeWrap" style="${fx.shake?'':'display:none;'}margin-top:6px;">
+        <label>강도 <span class="val-badge" id="fxShakeVal">${fx.shakeIntensity}</span></label>
+        <input type="range" id="fxShakeIntensity" min="1" max="20" step="1" value="${fx.shakeIntensity}">
+      </div>
+
+      <label style="margin-top:12px;">색감 필터</label>
+      <div class="row" style="gap:6px;">
+        <button class="secondary" id="fxFilterNone" style="flex:1;${fx.filter==='none'?'border-color:var(--amber);color:var(--amber);':''}">없음</button>
+        <button class="secondary" id="fxFilterGray" style="flex:1;${fx.filter==='grayscale'?'border-color:var(--amber);color:var(--amber);':''}">흑백</button>
+        <button class="secondary" id="fxFilterSepia" style="flex:1;${fx.filter==='sepia'?'border-color:var(--amber);color:var(--amber);':''}">세피아</button>
+      </div>
+      <label style="margin-top:8px;">밝기 <span class="val-badge" id="fxBrightVal">${fx.brightness}%</span></label>
+      <input type="range" id="fxBrightness" min="50" max="150" step="1" value="${fx.brightness}">
+      <label>대비 <span class="val-badge" id="fxContrastVal">${fx.contrast}%</span></label>
+      <input type="range" id="fxContrast" min="50" max="150" step="1" value="${fx.contrast}">
+      <label>채도 <span class="val-badge" id="fxSaturationVal">${fx.saturation}%</span></label>
+      <input type="range" id="fxSaturation" min="0" max="200" step="1" value="${fx.saturation}">
+
+      <label class="row" style="align-items:center;gap:8px;margin-top:12px;">
+        <input type="checkbox" id="fxVignette" ${fx.vignette?'checked':''}> <span style="color:var(--text);">비네트 (가장자리 어둡게)</span>
+      </label>
+      <label class="row" style="align-items:center;gap:8px;margin-top:6px;">
+        <input type="checkbox" id="fxGrain" ${fx.grain?'checked':''}> <span style="color:var(--text);">필름 그레인</span>
+      </label>
+
+      <label style="margin-top:12px;">이 클립 자체 페이드 인 <span class="val-badge" id="fxFadeInVal">${fx.fadeIn.toFixed(1)}s</span></label>
+      <input type="range" id="fxFadeIn" min="0" max="3" step="0.1" value="${fx.fadeIn}">
+      <label>이 클립 자체 페이드 아웃 <span class="val-badge" id="fxFadeOutVal">${fx.fadeOut.toFixed(1)}s</span></label>
+      <input type="range" id="fxFadeOut" min="0" max="3" step="0.1" value="${fx.fadeOut}">
+      <div class="footer-note">클립 간 전환(위의 "다음 클립과 부드럽게 전환")과 달리, 이 클립 혼자 검은 화면에서 나타나거나 사라지는 효과예요.</div>
+      ${clip.isImage ? '' : `
+      <label style="margin-top:12px;">재생 속도 <span class="val-badge" id="fxSpeedVal">${(fx.speed||1).toFixed(2)}x ${fx.speed<1?'(슬로우모션)':fx.speed>1?'(빠르게)':''}</span></label>
+      <input type="range" id="fxSpeed" min="0.25" max="3" step="0.05" value="${fx.speed||1}">
+      <div class="footer-note">1보다 작으면 느리게(슬로우모션), 크면 빠르게 재생돼요. 화면에 쓰이는 길이(타임라인 상 길이)가 그에 맞춰 늘어나거나 줄어들어요.</div>
+      `}
+
+      <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);">
+        <label style="margin:0;">미러/회전</label>
+        <div class="row" style="gap:6px;margin-top:4px;">
+          <button class="secondary" id="fxFlipHBtn" style="flex:1;${fx.flipH?'border-color:var(--amber);color:var(--amber);':''}">좌우 반전</button>
+          <button class="secondary" id="fxFlipVBtn" style="flex:1;${fx.flipV?'border-color:var(--amber);color:var(--amber);':''}">상하 반전</button>
+        </div>
+        <label style="margin-top:8px;">회전 <span class="val-badge" id="fxRotationVal">${fx.rotation||0}°</span></label>
+        <input type="range" id="fxRotation" min="-180" max="180" step="1" value="${fx.rotation||0}">
+      </div>
+
+      <label class="row" style="align-items:center;gap:8px;margin-top:10px;">
+        <input type="checkbox" id="fxInvert" ${fx.invert?'checked':''}> <span style="color:var(--text);">색상 반전 (네거티브)</span>
+      </label>
+
+      <label class="row" style="align-items:center;gap:8px;margin-top:10px;">
+        <input type="checkbox" id="fxTint" ${fx.tint?'checked':''}> <span style="color:var(--text);">색조 틴트</span>
+      </label>
+      <div id="fxTintWrap" style="${fx.tint?'':'display:none;'}margin-top:6px;">
+        <input type="color" id="fxTintColor" value="${fx.tintColor||'#3a6fff'}" style="width:100%;height:32px;padding:2px;">
+        <label style="margin-top:6px;">강도 <span class="val-badge" id="fxTintStrengthVal">${fx.tintStrength||35}%</span></label>
+        <input type="range" id="fxTintStrength" min="0" max="100" step="1" value="${fx.tintStrength||35}">
+      </div>
+
+      <label class="row" style="align-items:center;gap:8px;margin-top:10px;">
+        <input type="checkbox" id="fxCensor" ${fx.censor?'checked':''}> <span style="color:var(--text);">특정 부분 가리기 (블러/모자이크)</span>
+      </label>
+      <div id="fxCensorWrap" style="${fx.censor?'':'display:none;'}margin-top:6px;">
+        <div class="row" style="gap:6px;">
+          <button class="secondary" id="fxCensorBlurBtn" style="flex:1;${fx.censorType!=='mosaic'?'border-color:var(--amber);color:var(--amber);':''}">블러</button>
+          <button class="secondary" id="fxCensorMosaicBtn" style="flex:1;${fx.censorType==='mosaic'?'border-color:var(--amber);color:var(--amber);':''}">모자이크</button>
+        </div>
+        <label style="margin-top:6px;">가로 위치 <span class="val-badge" id="fxCensorXVal">${fx.censorX}%</span></label>
+        <input type="range" id="fxCensorX" min="0" max="100" step="1" value="${fx.censorX}">
+        <label>세로 위치 <span class="val-badge" id="fxCensorYVal">${fx.censorY}%</span></label>
+        <input type="range" id="fxCensorY" min="0" max="100" step="1" value="${fx.censorY}">
+        <label>가로 크기 <span class="val-badge" id="fxCensorWVal">${fx.censorW}%</span></label>
+        <input type="range" id="fxCensorW" min="5" max="80" step="1" value="${fx.censorW}">
+        <label>세로 크기 <span class="val-badge" id="fxCensorHVal">${fx.censorH}%</span></label>
+        <input type="range" id="fxCensorH" min="5" max="80" step="1" value="${fx.censorH}">
+      </div>
+
+      <label class="row" style="align-items:center;gap:8px;margin-top:10px;">
+        <input type="checkbox" id="fxVhs" ${fx.vhs?'checked':''}> <span style="color:var(--text);">VHS 느낌 (스캔라인+색 번짐)</span>
+      </label>
+      <label class="row" style="align-items:center;gap:8px;margin-top:8px;">
+        <input type="checkbox" id="fxGlitch" ${fx.glitch?'checked':''}> <span style="color:var(--text);">글리치 효과</span>
+      </label>
+
+      <label class="row" style="align-items:center;gap:8px;margin-top:10px;">
+        <input type="checkbox" id="fxChromaKey" ${fx.chromaKey?'checked':''}> <span style="color:var(--text);">크로마키 (배경 제거)</span>
+      </label>
+      <div id="fxChromaKeyWrap" style="${fx.chromaKey?'':'display:none;'}margin-top:6px;">
+        <input type="color" id="fxChromaKeyColor" value="${fx.chromaKeyColor||'#00ff00'}" style="width:100%;height:32px;padding:2px;">
+        <label style="margin-top:6px;">허용 범위 <span class="val-badge" id="fxChromaTolVal">${fx.chromaKeyTolerance!=null?fx.chromaKeyTolerance:38}</span></label>
+        <input type="range" id="fxChromaTol" min="10" max="80" step="1" value="${fx.chromaKeyTolerance!=null?fx.chromaKeyTolerance:38}">
+        <div class="footer-note" style="margin-top:4px;">지정한 색상과 비슷한 부분을 투명하게 지워요. 다른 영상과 합성하는 기능은 아직 없어서, 지워진 부분은 검은 배경(또는 뒤에 있는 배경 바 등)이 보여요.</div>
+      </div>
+
+      <button class="secondary" id="fxResetBtn" style="width:100%;margin-top:10px;">효과 전체 초기화</button>
+    </div>
   `;
-  document.getElementById('revChk').onchange = (e)=>{
-    clip.reverse = e.target.checked;
-    renderClipList(); renderTimeline();
-    if(clip.reverse) getReverseFrames(clip); // 미리 백그라운드에서 준비
-  };
+  if(clip.isImage){
+    document.getElementById('imgDurSlider').oninput = (e)=>{
+      clip.duration = parseFloat(e.target.value);
+      clip.sourceDuration = clip.duration;
+      document.getElementById('imgDurVal').textContent = clip.duration.toFixed(1)+'s';
+      renderClipList(); renderTimeline(); updateScrubberRange();
+    };
+  } else {
+    document.getElementById('revChk').onchange = (e)=>{
+      clip.reverse = e.target.checked;
+      renderClipList(); renderTimeline();
+      if(clip.reverse) startBackgroundReverseCache(clip);
+    };
+    document.getElementById('audioMuteChk').onchange = (e)=>{
+      clip.audioMuted = e.target.checked;
+      renderInspector();
+    };
+  }
   document.getElementById('transChk').onchange = (e)=>{
     clip.fadeTransition = e.target.checked;
     if(!clip.transitionDuration) clip.transitionDuration = 0.5;
@@ -4045,6 +4871,9 @@ function renderInspector(){
   document.getElementById('transDurSlider') && (document.getElementById('transDurSlider').oninput = (e)=>{
     clip.transitionDuration = parseFloat(e.target.value);
     document.getElementById('transDurVal').textContent = clip.transitionDuration.toFixed(1)+'s';
+  });
+  document.getElementById('transTypeSelect') && (document.getElementById('transTypeSelect').onchange = (e)=>{
+    clip.transitionType = e.target.value;
   });
   document.getElementById('fitCoverBtn').onclick = ()=>{
     clip.fitMode = 'cover'; clip.scale=1; clip.offsetX=0; clip.offsetY=0;
@@ -4062,7 +4891,168 @@ function renderInspector(){
     clip.scale=1; clip.offsetX=0; clip.offsetY=0;
     renderInspector();
   };
+
+  document.getElementById('fxKenBurns').onchange = (e)=>{
+    fx.kenBurns = e.target.checked;
+    if(fx.kenBurns && fx.scaleEnd==null) fx.scaleEnd = Math.min(3, clip.scale*1.15);
+    renderInspector();
+  };
+  document.getElementById('fxScaleEnd') && (document.getElementById('fxScaleEnd').oninput = (e)=>{
+    fx.scaleEnd = parseFloat(e.target.value);
+    document.getElementById('fxScaleEndVal').textContent = fx.scaleEnd.toFixed(2)+'x';
+  });
+  document.getElementById('fxKenBurnsSwapBtn') && (document.getElementById('fxKenBurnsSwapBtn').onclick = ()=>{
+    const endScale = fx.scaleEnd!=null ? fx.scaleEnd : clip.scale;
+    fx.scaleEnd = clip.scale;
+    clip.scale = endScale;
+    renderInspector();
+  });
+
+  document.getElementById('fxShake').onchange = (e)=>{
+    fx.shake = e.target.checked;
+    renderInspector();
+  };
+  document.getElementById('fxShakeIntensity') && (document.getElementById('fxShakeIntensity').oninput = (e)=>{
+    fx.shakeIntensity = parseFloat(e.target.value);
+    document.getElementById('fxShakeVal').textContent = fx.shakeIntensity;
+  });
+
+  document.getElementById('fxFilterNone').onclick = ()=>{ fx.filter='none'; renderInspector(); };
+  document.getElementById('fxFilterGray').onclick = ()=>{ fx.filter='grayscale'; renderInspector(); };
+  document.getElementById('fxFilterSepia').onclick = ()=>{ fx.filter='sepia'; renderInspector(); };
+  document.getElementById('fxBrightness').oninput = (e)=>{
+    fx.brightness = parseFloat(e.target.value);
+    document.getElementById('fxBrightVal').textContent = fx.brightness+'%';
+  };
+  document.getElementById('fxContrast').oninput = (e)=>{
+    fx.contrast = parseFloat(e.target.value);
+    document.getElementById('fxContrastVal').textContent = fx.contrast+'%';
+  };
+  document.getElementById('fxSaturation').oninput = (e)=>{
+    fx.saturation = parseFloat(e.target.value);
+    document.getElementById('fxSaturationVal').textContent = fx.saturation+'%';
+  };
+
+  document.getElementById('fxVignette').onchange = (e)=>{ fx.vignette = e.target.checked; };
+  document.getElementById('fxGrain').onchange = (e)=>{ fx.grain = e.target.checked; };
+
+  document.getElementById('fxFadeIn').oninput = (e)=>{
+    fx.fadeIn = parseFloat(e.target.value);
+    document.getElementById('fxFadeInVal').textContent = fx.fadeIn.toFixed(1)+'s';
+  };
+  document.getElementById('fxFadeOut').oninput = (e)=>{
+    fx.fadeOut = parseFloat(e.target.value);
+    document.getElementById('fxFadeOutVal').textContent = fx.fadeOut.toFixed(1)+'s';
+  };
+  document.getElementById('fxSpeed') && (document.getElementById('fxSpeed').oninput = (e)=>{
+    fx.speed = parseFloat(e.target.value);
+    updateClipDuration(clip);
+    document.getElementById('fxSpeedVal').textContent = fx.speed.toFixed(2)+'x ' + (fx.speed<1?'(슬로우모션)':fx.speed>1?'(빠르게)':'');
+    renderClipList(); renderTimeline(); updateScrubberRange();
+  });
+
+  document.getElementById('fxFlipHBtn').onclick = ()=>{ fx.flipH = !fx.flipH; renderInspector(); };
+  document.getElementById('fxFlipVBtn').onclick = ()=>{ fx.flipV = !fx.flipV; renderInspector(); };
+  document.getElementById('fxRotation').oninput = (e)=>{
+    fx.rotation = parseFloat(e.target.value);
+    document.getElementById('fxRotationVal').textContent = fx.rotation+'°';
+  };
+  document.getElementById('fxInvert').onchange = (e)=>{ fx.invert = e.target.checked; };
+  document.getElementById('fxTint').onchange = (e)=>{
+    fx.tint = e.target.checked;
+    document.getElementById('fxTintWrap').style.display = fx.tint ? 'block' : 'none';
+  };
+  document.getElementById('fxTintColor').oninput = (e)=>{ fx.tintColor = e.target.value; };
+  document.getElementById('fxTintStrength').oninput = (e)=>{
+    fx.tintStrength = parseFloat(e.target.value);
+    document.getElementById('fxTintStrengthVal').textContent = fx.tintStrength+'%';
+  };
+  document.getElementById('fxCensor').onchange = (e)=>{
+    fx.censor = e.target.checked;
+    document.getElementById('fxCensorWrap').style.display = fx.censor ? 'block' : 'none';
+  };
+  document.getElementById('fxCensorBlurBtn').onclick = ()=>{ fx.censorType='blur'; renderInspector(); };
+  document.getElementById('fxCensorMosaicBtn').onclick = ()=>{ fx.censorType='mosaic'; renderInspector(); };
+  document.getElementById('fxCensorX').oninput = (e)=>{ fx.censorX = parseFloat(e.target.value); document.getElementById('fxCensorXVal').textContent = fx.censorX+'%'; };
+  document.getElementById('fxCensorY').oninput = (e)=>{ fx.censorY = parseFloat(e.target.value); document.getElementById('fxCensorYVal').textContent = fx.censorY+'%'; };
+  document.getElementById('fxCensorW').oninput = (e)=>{ fx.censorW = parseFloat(e.target.value); document.getElementById('fxCensorWVal').textContent = fx.censorW+'%'; };
+  document.getElementById('fxCensorH').oninput = (e)=>{ fx.censorH = parseFloat(e.target.value); document.getElementById('fxCensorHVal').textContent = fx.censorH+'%'; };
+  document.getElementById('fxVhs').onchange = (e)=>{ fx.vhs = e.target.checked; };
+  document.getElementById('fxGlitch').onchange = (e)=>{ fx.glitch = e.target.checked; };
+  document.getElementById('fxChromaKey').onchange = (e)=>{
+    fx.chromaKey = e.target.checked;
+    document.getElementById('fxChromaKeyWrap').style.display = fx.chromaKey ? 'block' : 'none';
+  };
+  document.getElementById('fxChromaKeyColor').oninput = (e)=>{ fx.chromaKeyColor = e.target.value; };
+  document.getElementById('fxChromaTol').oninput = (e)=>{
+    fx.chromaKeyTolerance = parseFloat(e.target.value);
+    document.getElementById('fxChromaTolVal').textContent = fx.chromaKeyTolerance;
+  };
+
+  document.getElementById('fxResetBtn').onclick = ()=>{
+    clip.fx = defaultFx();
+    updateClipDuration(clip);
+    renderInspector(); renderClipList(); renderTimeline(); updateScrubberRange();
+  };
 }
+
+/* ============================= 클립 트림 (앞/뒤 자르기) ============================= */
+function renderTrimBar(){
+  const wrap = document.getElementById('trimWrap');
+  const clip = state.clips.find(c=>c.id===state.selectedClipId);
+  if(!clip || clip.isImage){ wrap.style.display='none'; return; }
+  wrap.style.display = 'block';
+  const src = clip.sourceDuration || clip.duration;
+  const leftPct = src>0 ? (clip.trimStart/src*100) : 0;
+  const rightPct = src>0 ? ((src-clip.trimEnd)/src*100) : 100;
+  document.getElementById('trimKept').style.left = leftPct+'%';
+  document.getElementById('trimKept').style.width = Math.max(0, rightPct-leftPct)+'%';
+  document.getElementById('trimHandleLeft').style.left = `calc(${leftPct}% - 7px)`;
+  document.getElementById('trimHandleRight').style.left = `calc(${rightPct}% - 7px)`;
+  document.getElementById('trimStartLabel').textContent = fmtTime(clip.trimStart);
+  document.getElementById('trimEndLabel').textContent = fmtTime(src - clip.trimEnd);
+  document.getElementById('trimKeptLabel').textContent =
+    (clip.trimStart>0.001 || clip.trimEnd>0.001) ? `사용: ${fmtTime(clip.duration)}` : '전체 사용';
+}
+
+let trimDragging = null; // 'left' | 'right' | null
+document.getElementById('trimHandleLeft').addEventListener('pointerdown', (e)=>{ trimDragging='left'; e.preventDefault(); });
+document.getElementById('trimHandleRight').addEventListener('pointerdown', (e)=>{ trimDragging='right'; e.preventDefault(); });
+window.addEventListener('pointermove', (e)=>{
+  if(!trimDragging) return;
+  const clip = state.clips.find(c=>c.id===state.selectedClipId);
+  if(!clip) return;
+  const bar = document.getElementById('trimBar');
+  const rect = bar.getBoundingClientRect();
+  const frac = Math.max(0, Math.min(1, (e.clientX-rect.left)/rect.width));
+  const src = clip.sourceDuration || clip.duration;
+  const t = frac*src;
+  const minGap = 0.3; // 최소로 남겨두는 길이(초) — 완전히 0초가 되는 걸 방지
+  if(trimDragging==='left'){
+    clip.trimStart = Math.max(0, Math.min(t, src-clip.trimEnd-minGap));
+  } else {
+    const newEndPoint = Math.max(clip.trimStart+minGap, t);
+    clip.trimEnd = Math.max(0, src-newEndPoint);
+  }
+  updateClipDuration(clip);
+  try{ clip.el.currentTime = clip.trimStart + Math.min(0.05, clip.duration/2); }catch(err){}
+  renderTrimBar();
+  renderClipList(); renderTimeline(); updateScrubberRange();
+});
+window.addEventListener('pointerup', ()=>{
+  if(!trimDragging) return;
+  trimDragging = null;
+  const clip = state.clips.find(c=>c.id===state.selectedClipId);
+  if(clip) reverseFrameCache.delete(clipCacheKey(clip)); // 트림이 바뀌면 이전 역방향 캐시는 더 이상 안 맞음
+  renderInspector();
+});
+document.getElementById('trimResetBtn').onclick = ()=>{
+  const clip = state.clips.find(c=>c.id===state.selectedClipId);
+  if(!clip) return;
+  clip.trimStart = 0; clip.trimEnd = 0; updateClipDuration(clip);
+  reverseFrameCache.delete(clipCacheKey(clip));
+  renderTrimBar(); renderClipList(); renderTimeline(); updateScrubberRange(); renderInspector();
+};
 
 /* ============================= 모드 전환 ============================= */
 document.getElementById('modeShorts').onclick = ()=>setMode('shorts');
@@ -4105,26 +5095,378 @@ sizeStage();
 function getSourceDims(source){
   if(!source) return {w:0,h:0};
   if(source.videoWidth) return {w:source.videoWidth, h:source.videoHeight};
+  if(source.naturalWidth) return {w:source.naturalWidth, h:source.naturalHeight};
   return {w:source.width||0, h:source.height||0};
 }
 
-function renderClipToContext(context, source, clip, d, fillBg){
-  if(fillBg!==false){
-    context.fillStyle = '#000';
-    context.fillRect(0,0,d.w,d.h);
+let grainPatternCache = null;
+function getGrainPattern(context){
+  if(grainPatternCache) return grainPatternCache;
+  const size = 128;
+  const c = document.createElement('canvas');
+  c.width = size; c.height = size;
+  const cctx = c.getContext('2d');
+  const imgData = cctx.createImageData(size, size);
+  for(let i=0;i<imgData.data.length;i+=4){
+    const v = Math.random()*255;
+    imgData.data[i]=v; imgData.data[i+1]=v; imgData.data[i+2]=v; imgData.data[i+3]=255;
   }
+  cctx.putImageData(imgData, 0, 0);
+  grainPatternCache = context.createPattern(c, 'repeat');
+  return grainPatternCache;
+}
+
+function computeBaseClipRect(clip, source, d){
   const {w:vw, h:vh} = getSourceDims(source);
-  if(!vw || !vh) return;
+  if(!vw || !vh) return null;
   const baseScale = clip.fitMode==='contain' ? Math.min(d.w/vw, d.h/vh) : Math.max(d.w/vw, d.h/vh);
   const scale = baseScale * clip.scale;
   const dw = vw*scale, dh = vh*scale;
   const dx = (d.w-dw)/2 + clip.offsetX;
   const dy = (d.h-dh)/2 + clip.offsetY;
-  context.drawImage(source, dx, dy, dw, dh);
+  return {dx, dy, dw, dh, vw, vh, baseScale};
 }
 
-function drawClipFrame(videoEl, clip, fillBg){
-  renderClipToContext(ctx, videoEl, clip, dims(), fillBg);
+function computeResizeHandlePos(clip, source, d){
+  const rect = computeBaseClipRect(clip, source, d);
+  if(!rect) return null;
+  const margin = Math.max(14, d.h*0.02); // 캔버스 경계선 위에 딱 걸치면 클릭 판정이 애매해져서 안쪽으로 살짝 여유를 둠
+  const hx = Math.max(margin, Math.min(d.w-margin, rect.dx + rect.dw));
+  const hy = Math.max(margin, Math.min(d.h-margin, rect.dy + rect.dh));
+  const cx = rect.dx + rect.dw/2, cy = rect.dy + rect.dh/2;
+  return {hx, hy, cx, cy};
+}
+
+function drawResizeHandle(clip, d){
+  const pos = computeResizeHandlePos(clip, clip.el, d);
+  if(!pos) return;
+  const {hx, hy} = pos;
+  const r = Math.max(10, d.h*0.014);
+  ctx.save();
+  ctx.fillStyle = '#ffb454';
+  ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(hx, hy, r, 0, Math.PI*2);
+  ctx.fill();
+  ctx.stroke();
+  // 화살표 두 개로 "크기 조절" 방향 표시
+  ctx.strokeStyle = '#1a1400';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(hx-r*0.45, hy+r*0.45); ctx.lineTo(hx+r*0.45, hy-r*0.45);
+  ctx.moveTo(hx+r*0.1, hy-r*0.45); ctx.lineTo(hx+r*0.45, hy-r*0.45); ctx.lineTo(hx+r*0.45, hy-r*0.1);
+  ctx.moveTo(hx-r*0.1, hy+r*0.45); ctx.lineTo(hx-r*0.45, hy+r*0.45); ctx.lineTo(hx-r*0.45, hy+r*0.1);
+  ctx.stroke();
+  ctx.restore();
+}
+
+const chromaKeyCanvas = document.createElement('canvas');
+function applyChromaKey(source, vw, vh, keyColor, tolerance){
+  if(chromaKeyCanvas.width!==vw) chromaKeyCanvas.width = vw;
+  if(chromaKeyCanvas.height!==vh) chromaKeyCanvas.height = vh;
+  const octx = chromaKeyCanvas.getContext('2d', {willReadFrequently:true});
+  octx.clearRect(0,0,vw,vh);
+  octx.drawImage(source, 0, 0, vw, vh);
+  const imgData = octx.getImageData(0,0,vw,vh);
+  const data = imgData.data;
+  const kr = parseInt(keyColor.slice(1,3),16), kg = parseInt(keyColor.slice(3,5),16), kb = parseInt(keyColor.slice(5,7),16);
+  const tol = (tolerance!=null?tolerance:38) * 3;
+  for(let i=0;i<data.length;i+=4){
+    const dr=data[i]-kr, dg=data[i+1]-kg, db=data[i+2]-kb;
+    const dist = Math.sqrt(dr*dr+dg*dg+db*db);
+    if(dist < tol) data[i+3] = 0;
+    else if(dist < tol*1.6) data[i+3] = Math.round(data[i+3] * ((dist-tol)/(tol*0.6)));
+  }
+  octx.putImageData(imgData, 0, 0);
+  return chromaKeyCanvas;
+}
+
+function drawGlitchSlices(context, source, vw, vh, dx, dy, dw, dh, t){
+  const slices = 6;
+  for(let i=0;i<slices;i++){
+    const sy = (i/slices)*vh, sh = vh/slices;
+    const shift = Math.sin(t*97+i*13.7) * dw*0.035;
+    context.drawImage(source, 0, sy, vw, sh, dx+shift, dy+(sy/vh)*dh, dw, sh/vh*dh);
+  }
+}
+
+function drawCensorRegion(context, source, fx, d, dx, dy, dw, dh, vw, vh){
+  const rw = d.w*(fx.censorW/100), rh = d.h*(fx.censorH/100);
+  const rx = d.w*(fx.censorX/100) - rw/2, ry = d.h*(fx.censorY/100) - rh/2;
+  if(dw<=0||dh<=0) return;
+  const sx = (rx-dx)/dw*vw, sy = (ry-dy)/dh*vh, sw = rw/dw*vw, sh = rh/dh*vh;
+  if(sw<=0 || sh<=0) return;
+  context.save();
+  context.beginPath();
+  context.rect(rx, ry, rw, rh);
+  context.clip();
+  if(fx.censorType==='mosaic'){
+    const off = document.createElement('canvas');
+    const px = Math.max(2, Math.round(rw/16));
+    off.width = Math.max(1, Math.round(rw/px));
+    off.height = Math.max(1, Math.round(rh/px));
+    const octx = off.getContext('2d');
+    octx.imageSmoothingEnabled = false;
+    octx.drawImage(source, sx, sy, sw, sh, 0, 0, off.width, off.height);
+    context.imageSmoothingEnabled = false;
+    context.drawImage(off, 0, 0, off.width, off.height, rx, ry, rw, rh);
+    context.imageSmoothingEnabled = true;
+  } else {
+    context.filter = `blur(${Math.max(4, rw*0.08)}px)`;
+    context.drawImage(source, sx, sy, sw, sh, rx-10, ry-10, rw+20, rh+20);
+  }
+  context.restore();
+}
+
+function renderClipToContext(context, source, clip, d, fillBg, localTime){
+  if(fillBg!==false){
+    context.fillStyle = '#000';
+    context.fillRect(0,0,d.w,d.h);
+  }
+  if(clip.videoHidden) return; // 화면은 검게 두고 소리만 재생 (오디오 처리는 별도 로직에서 그대로 진행됨)
+  let {w:vw, h:vh} = getSourceDims(source);
+  if(!vw || !vh) return;
+
+  const fx = clip.fx;
+  const t = localTime||0;
+  const dur = Math.max(0.001, clip.duration);
+  const progress = Math.max(0, Math.min(1, t/dur));
+
+  let scaleMul = clip.scale, offX = clip.offsetX, offY = clip.offsetY;
+  if(fx && fx.kenBurns){
+    const endScale = fx.scaleEnd!=null ? fx.scaleEnd : clip.scale;
+    const endOffX = fx.offsetXEnd!=null ? fx.offsetXEnd : clip.offsetX;
+    const endOffY = fx.offsetYEnd!=null ? fx.offsetYEnd : clip.offsetY;
+    scaleMul = clip.scale + (endScale-clip.scale)*progress;
+    offX = clip.offsetX + (endOffX-clip.offsetX)*progress;
+    offY = clip.offsetY + (endOffY-clip.offsetY)*progress;
+  }
+  if(fx && fx.shake){
+    // 시간 기반의 결정적인(매번 같은 결과) 흔들림 — 실시간 난수가 아니라 여러 개의 사인파를 합쳐서 자연스럽게 흔들리게
+    const s = fx.shakeIntensity||6;
+    offX += Math.sin(t*17.3)*s*0.5 + Math.sin(t*7.1+1.5)*s*0.3;
+    offY += Math.cos(t*13.7)*s*0.5 + Math.cos(t*5.9+0.7)*s*0.3;
+  }
+
+  const baseScale = clip.fitMode==='contain' ? Math.min(d.w/vw, d.h/vh) : Math.max(d.w/vw, d.h/vh);
+  const scale = baseScale * scaleMul;
+  const dw = vw*scale, dh = vh*scale;
+  const dx = (d.w-dw)/2 + offX;
+  const dy = (d.h-dh)/2 + offY;
+
+  // 크로마키: 실제로 그릴 소스를 배경이 투명 처리된 캔버스로 바꿔치기 (다른 클립과 합성해서 보여주는 기능은 아직 없어서,
+  // 지워진 부분은 검은 배경/막대 등 뒤에 있는 걸 그대로 보여주는 정도로만 동작함)
+  let drawSource = source;
+  if(fx && fx.chromaKey){
+    drawSource = applyChromaKey(source, vw, vh, fx.chromaKeyColor||'#00ff00', fx.chromaKeyTolerance);
+  }
+
+  context.save();
+  if(fx && (fx.flipH || fx.flipV || fx.rotation)){
+    const cx = dx+dw/2, cy = dy+dh/2;
+    context.translate(cx, cy);
+    if(fx.rotation) context.rotate(fx.rotation*Math.PI/180);
+    context.scale(fx.flipH?-1:1, fx.flipV?-1:1);
+    context.translate(-cx, -cy);
+  }
+  const filters = [];
+  if(fx){
+    if(fx.filter==='grayscale') filters.push('grayscale(1)');
+    if(fx.filter==='sepia') filters.push('sepia(1)');
+    if(fx.invert) filters.push('invert(1)');
+    if(fx.brightness!=null && fx.brightness!==100) filters.push(`brightness(${fx.brightness}%)`);
+    if(fx.contrast!=null && fx.contrast!==100) filters.push(`contrast(${fx.contrast}%)`);
+    if(fx.saturation!=null && fx.saturation!==100) filters.push(`saturate(${fx.saturation}%)`);
+  }
+  if(filters.length) context.filter = filters.join(' ');
+
+  if(fx && fx.vhs){
+    // VHS: 살짝 어긋난 위치에 반투명하게 겹쳐 그려서 색이 번지는 느낌
+    const off = Math.max(1, dw*0.004);
+    context.globalAlpha = 0.45;
+    context.drawImage(drawSource, dx-off, dy, dw, dh);
+    context.drawImage(drawSource, dx+off, dy, dw, dh);
+    context.globalAlpha = 1;
+    context.drawImage(drawSource, dx, dy, dw, dh);
+  } else if(fx && fx.glitch && Math.sin(t*47.0+2.1)>0.72){
+    // 글리치: 가끔(주기적으로) 화면을 가로로 몇 조각 내서 어긋나게 그림
+    drawGlitchSlices(context, drawSource, vw, vh, dx, dy, dw, dh, t);
+  } else {
+    context.drawImage(drawSource, dx, dy, dw, dh);
+  }
+  context.restore();
+
+  if(fx && fx.tint){
+    context.save();
+    context.beginPath();
+    context.rect(Math.max(0,dx), Math.max(0,dy), Math.min(d.w,dx+dw)-Math.max(0,dx), Math.min(d.h,dy+dh)-Math.max(0,dy));
+    context.clip();
+    context.globalCompositeOperation = 'color';
+    context.globalAlpha = (fx.tintStrength!=null?fx.tintStrength:35)/100;
+    context.fillStyle = fx.tintColor || '#3a6fff';
+    context.fillRect(0,0,d.w,d.h);
+    context.restore();
+  }
+
+  if(fx && fx.vhs){
+    context.save();
+    context.globalAlpha = 0.12;
+    context.fillStyle = '#000';
+    for(let sy=0; sy<d.h; sy+=3){ context.fillRect(0, sy, d.w, 1); }
+    context.restore();
+  }
+
+  if(fx && fx.censor){
+    drawCensorRegion(context, drawSource, fx, d, dx, dy, dw, dh, vw, vh);
+  }
+
+  if(fx && fx.vignette){
+    const grad = context.createRadialGradient(d.w/2,d.h/2, Math.min(d.w,d.h)*0.35, d.w/2,d.h/2, Math.max(d.w,d.h)*0.7);
+    grad.addColorStop(0,'rgba(0,0,0,0)');
+    grad.addColorStop(1,'rgba(0,0,0,0.55)');
+    context.save();
+    context.fillStyle = grad;
+    context.fillRect(0,0,d.w,d.h);
+    context.restore();
+  }
+  if(fx && fx.grain){
+    context.save();
+    context.globalAlpha = 0.07;
+    context.globalCompositeOperation = 'overlay';
+    context.fillStyle = getGrainPattern(context);
+    context.fillRect(0,0,d.w,d.h);
+    context.restore();
+  }
+  if(fx && (fx.fadeIn>0 || fx.fadeOut>0)){
+    let fadeAlpha = 0;
+    if(fx.fadeIn>0 && t<fx.fadeIn) fadeAlpha = Math.max(fadeAlpha, 1-(t/fx.fadeIn));
+    if(fx.fadeOut>0 && t>dur-fx.fadeOut) fadeAlpha = Math.max(fadeAlpha, 1-((dur-t)/fx.fadeOut));
+    if(fadeAlpha>0.001){
+      context.save();
+      context.fillStyle = `rgba(0,0,0,${Math.min(1,fadeAlpha)})`;
+      context.fillRect(0,0,d.w,d.h);
+      context.restore();
+    }
+  }
+}
+
+const slideTmpCanvases = {};
+function getSlideTmpCanvas(key, d){
+  let c = slideTmpCanvases[key];
+  if(!c){ c = document.createElement('canvas'); slideTmpCanvases[key]=c; }
+  if(c.width!==d.w) c.width = d.w;
+  if(c.height!==d.h) c.height = d.h;
+  return c;
+}
+
+function drawTransitionFrame(context, d, clipA, sourceA, localA, clipB, sourceB, localB, progress, type){
+  type = type || 'crossfade';
+  if(type==='slide'){
+    // 두 클립을 각각 캔버스 크기의 별도 임시 캔버스에 먼저 정상적으로 그린 다음, 그 완성된 프레임끼리 밀어서 전환한다
+    // (cover 모드처럼 원본이 캔버스보다 훨씬 커지는 경우에도 정확하게 화면을 벗어나도록)
+    const tmpA = getSlideTmpCanvas('A', d);
+    renderClipToContext(tmpA.getContext('2d'), sourceA, clipA, d, true, localA);
+    const tmpB = getSlideTmpCanvas('B', d);
+    renderClipToContext(tmpB.getContext('2d'), sourceB, clipB, d, true, localB);
+
+    context.save();
+    context.fillStyle = '#000';
+    context.fillRect(0,0,d.w,d.h);
+    const off = d.w*progress;
+    context.drawImage(tmpA, -off, 0);
+    context.drawImage(tmpB, d.w-off, 0);
+    context.restore();
+  } else if(type==='zoom'){
+    renderClipToContext(context, sourceA, clipA, d, true, localA);
+    context.save();
+    context.globalAlpha = progress;
+    const zoomScale = 1 + progress*0.35;
+    context.translate(d.w/2, d.h/2);
+    context.scale(zoomScale, zoomScale);
+    context.translate(-d.w/2, -d.h/2);
+    renderClipToContext(context, sourceB, clipB, d, false, localB);
+    context.restore();
+  } else if(type==='fadeblack' || type==='fadewhite'){
+    const color = type==='fadewhite' ? '#ffffff' : '#000000';
+    if(progress<0.5){
+      renderClipToContext(context, sourceA, clipA, d, true, localA);
+      context.save(); context.globalAlpha = progress*2; context.fillStyle = color; context.fillRect(0,0,d.w,d.h); context.restore();
+    } else {
+      context.fillStyle = color; context.fillRect(0,0,d.w,d.h);
+      renderClipToContext(context, sourceB, clipB, d, false, localB);
+      context.save(); context.globalAlpha = (1-progress)*2; context.fillStyle = color; context.fillRect(0,0,d.w,d.h); context.restore();
+    }
+  } else { // crossfade
+    renderClipToContext(context, sourceA, clipA, d, true, localA);
+    context.save();
+    context.globalAlpha = progress;
+    renderClipToContext(context, sourceB, clipB, d, false, localB);
+    context.restore();
+  }
+}
+
+function clearStage(){
+  const d = dims();
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, d.w, d.h);
+}
+
+function drawClipFrame(videoEl, clip, fillBg, localTime){
+  renderClipToContext(ctx, videoEl, clip, dims(), fillBg, localTime);
+}
+
+// 역방향 재생 준비 중 화면이 아무 반응 없어 보이지 않도록, 캔버스에 직접 진행 상황을 그려서 보여줌
+function drawPrepOverlay(text, progress){
+  const d = dims();
+  ctx.fillStyle = '#0f1115';
+  ctx.fillRect(0, 0, d.w, d.h);
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `${Math.round(d.h*0.05)}px sans-serif`;
+  ctx.fillStyle = '#ffb454';
+  ctx.fillText('⏳', d.w/2, d.h*0.42);
+  ctx.font = `600 ${Math.round(d.h*0.026)}px 'Noto Sans KR', sans-serif`;
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.fillText(text, d.w/2, d.h*0.5);
+  const barW = d.w*0.6, barH = Math.max(4, d.h*0.01), barX = d.w*0.2, barY = d.h*0.56;
+  ctx.fillStyle = 'rgba(255,255,255,0.15)';
+  ctx.fillRect(barX, barY, barW, barH);
+  ctx.fillStyle = '#ffb454';
+  ctx.fillRect(barX, barY, barW*Math.max(0,Math.min(1,progress||0)), barH);
+  ctx.restore();
+}
+
+// "역방향 재생" 체크박스를 켜는 순간 백그라운드에서 미리 프레임을 준비해둠.
+// 이때 clip.el(편집 미리보기가 쓰는 것과 같은 엘리먼트)을 그대로 쓰면, 편집 화면 루프가
+// 계속 같은 엘리먼트의 재생 위치를 되돌리려고 하면서 서로 충돌해 멈춘 것처럼 보이는 문제가 있었다.
+// 그래서 이 준비 작업만을 위한 별도의 임시 엘리먼트를 사용한다.
+let backgroundReverseCacheClipId = null;
+let backgroundReverseCacheProgress = {done:0, total:0};
+
+async function startBackgroundReverseCache(clip){
+  if(reverseFrameCache.has(clipCacheKey(clip))) return;
+  backgroundReverseCacheClipId = clip.id;
+  backgroundReverseCacheProgress = {done:0, total:0};
+  const tempEl = document.createElement('video');
+  tempEl.src = clip.url;
+  tempEl.preload = 'auto';
+  tempEl.playsInline = true;
+  tempEl.muted = true;
+  await new Promise(resolve=>{
+    let done=false;
+    const finish=()=>{ if(done) return; done=true; resolve(); };
+    tempEl.addEventListener('loadedmetadata', finish, {once:true});
+    setTimeout(finish, 8000);
+  });
+  try{
+    await getReverseFrames(clip, tempEl, (doneN, totalN)=>{
+      backgroundReverseCacheProgress = {done:doneN, total:totalN};
+    });
+  }catch(e){ console.warn('역방향 프레임 준비 실패', e); }
+  if(backgroundReverseCacheClipId === clip.id) backgroundReverseCacheClipId = null;
+  tempEl.src = '';
 }
 
 /* ---- 역방향 재생용 프레임 캐시 ----
@@ -4133,37 +5475,62 @@ function drawClipFrame(videoEl, clip, fillBg){
    거꾸로 그리기만 하므로 훨씬 매끄럽다. */
 const reverseFrameCache = new Map(); // key: clip.url
 
+function clipCacheKey(clip){
+  const speed = (clip.fx && clip.fx.speed) || 1;
+  return clip.url + '|' + (clip.trimStart||0) + '|' + (clip.trimEnd||0) + '|' + speed;
+}
+
+const reverseFrameBuildPromises = new Map(); // cacheKey -> 진행 중인 빌드 Promise (중복 빌드 방지)
+
 async function getReverseFrames(clip, sourceEl, onProgress, memBudgetOverride){
-  const cached = reverseFrameCache.get(clip.url);
+  const cacheKey = clipCacheKey(clip);
+  const cached = reverseFrameCache.get(cacheKey);
   if(cached) return cached;
-  sourceEl = sourceEl || clip.el;
-  const srcW = sourceEl.videoWidth||640, srcH = sourceEl.videoHeight||360;
-  const maxDim = 800;
-  const scaleDown = Math.min(1, maxDim/Math.max(srcW,srcH));
-  const fw = Math.max(2, Math.round(srcW*scaleDown)), fh = Math.max(2, Math.round(srcH*scaleDown));
-  const bytesPerFrame = fw*fh*4;
-  const memBudget = memBudgetOverride || (500*1024*1024); // 기본: 클립당 ~500MB (여러 클립이면 호출부에서 나눠서 지정)
-  const memCapFrames = Math.max(6, Math.floor(memBudget/bytesPerFrame));
-
-  const desiredFps = 24; // 목표는 출력 fps와 동일하게 — 메모리가 허용하는 한 최대한 이 값에 가깝게
-  let total = Math.round(clip.duration*desiredFps);
-  total = Math.max(6, Math.min(total, memCapFrames));
-  const step = clip.duration/total;
-
-  sourceEl.pause();
-  const frames = [];
-  for(let i=0;i<total;i++){
-    const t = Math.min(clip.duration-0.02, i*step);
-    await seekTo(sourceEl, t);
-    const c = document.createElement('canvas');
-    c.width = fw; c.height = fh;
-    c.getContext('2d').drawImage(sourceEl, 0, 0, fw, fh);
-    frames.push(c);
-    if(onProgress) onProgress(i+1, total);
+  if(reverseFrameBuildPromises.has(cacheKey)){
+    // 같은 원본(같은 url·트림 범위)의 캐시를 이미 다른 곳에서 만들고 있으면, 새로 또 만들지 않고
+    // 그 결과를 같이 기다린다. 복제한 역방향 클립 여러 개가 동시에 캐시를 요청하면 디코더에
+    // 동시에 여러 개의 seek 루프가 경쟁하면서 심하게 끊기는 문제가 있었다.
+    return reverseFrameBuildPromises.get(cacheKey);
   }
-  const data = { frames, fps: total/clip.duration };
-  reverseFrameCache.set(clip.url, data);
-  return data;
+  const buildPromise = (async ()=>{
+    sourceEl = sourceEl || clip.el;
+    const srcW = sourceEl.videoWidth||640, srcH = sourceEl.videoHeight||360;
+    const maxDim = 800;
+    const scaleDown = Math.min(1, maxDim/Math.max(srcW,srcH));
+    const fw = Math.max(2, Math.round(srcW*scaleDown)), fh = Math.max(2, Math.round(srcH*scaleDown));
+    const bytesPerFrame = fw*fh*4;
+    const memBudget = memBudgetOverride || (500*1024*1024); // 기본: 클립당 ~500MB (여러 클립이면 호출부에서 나눠서 지정)
+    const memCapFrames = Math.max(6, Math.floor(memBudget/bytesPerFrame));
+
+    const desiredFps = 24; // 목표는 출력 fps와 동일하게 — 메모리가 허용하는 한 최대한 이 값에 가깝게
+    let total = Math.round(clip.duration*desiredFps);
+    total = Math.max(6, Math.min(total, memCapFrames));
+    const step = clip.duration/total;
+    const trimStart = clip.trimStart||0;
+    const speed = (clip.fx && clip.fx.speed) || 1;
+    const sourceRangeDur = clip.duration*speed - 0.02;
+
+    sourceEl.pause();
+    const frames = [];
+    for(let i=0;i<total;i++){
+      const t = trimStart + Math.min(sourceRangeDur, i*step*speed);
+      await seekTo(sourceEl, t);
+      const c = document.createElement('canvas');
+      c.width = fw; c.height = fh;
+      c.getContext('2d').drawImage(sourceEl, 0, 0, fw, fh);
+      frames.push(c);
+      if(onProgress) onProgress(i+1, total);
+    }
+    const data = { frames, fps: total/clip.duration };
+    reverseFrameCache.set(cacheKey, data);
+    return data;
+  })();
+  reverseFrameBuildPromises.set(cacheKey, buildPromise);
+  try{
+    return await buildPromise;
+  } finally {
+    reverseFrameBuildPromises.delete(cacheKey);
+  }
 }
 
 /* ---- 내보내기 전용 원본 화질 역방향 캐시 ----
@@ -4174,16 +5541,19 @@ async function getReverseFrames(clip, sourceEl, onProgress, memBudgetOverride){
 const exportReverseCache = new Map(); // key: clip.url
 
 async function buildExportReverseFrames(clip, sourceEl, targetFps, onProgress){
-  const cached = exportReverseCache.get(clip.url);
+  const cached = exportReverseCache.get(clipCacheKey(clip));
   if(cached) return cached;
   const fw = sourceEl.videoWidth || 640, fh = sourceEl.videoHeight || 360;
   const total = Math.max(2, Math.round(clip.duration*targetFps));
   const step = clip.duration/total;
+  const trimStart = clip.trimStart||0;
+  const speed = (clip.fx && clip.fx.speed) || 1;
+  const sourceRangeDur = clip.duration*speed - 0.02;
 
   sourceEl.pause();
   const frames = [];
   for(let i=0;i<total;i++){
-    const t = Math.min(clip.duration-0.02, i*step);
+    const t = trimStart + Math.min(sourceRangeDur, i*step*speed);
     await seekTo(sourceEl, t); // 항상 순방향으로만 이동 — 되감기 없음
     const c = document.createElement('canvas');
     c.width = fw; c.height = fh;
@@ -4192,24 +5562,26 @@ async function buildExportReverseFrames(clip, sourceEl, targetFps, onProgress){
     if(onProgress) onProgress(i+1, total);
   }
   const data = { frames, fps: total/clip.duration };
-  exportReverseCache.set(clip.url, data);
+  exportReverseCache.set(clipCacheKey(clip), data);
   return data;
 }
 
 // 캐시된 프레임을 역순으로 재생. drawFn(frame), onFrame(경과 로컬 시간), shouldAbort() 콜백을 받는다.
-async function playReverseCached(clip, drawFn, onFrame, shouldAbort, sourceEl){
+async function playReverseCached(clip, drawFn, onFrame, shouldAbort, sourceEl, startLocalT){
   const {frames, fps} = await getReverseFrames(clip, sourceEl);
   const frameDur = 1/fps;
+  const offsetFrames = Math.round((startLocalT||0)*fps);
   return new Promise(resolve=>{
-    let idx = frames.length-1;
+    let idx = Math.max(0, Math.min(frames.length-1, (frames.length-1)-offsetFrames));
     let last = performance.now();
     let acc = 0;
     function step(now){
       if(shouldAbort && shouldAbort()){ resolve(); return; }
       const dt = (now-last)/1000; last = now; acc += dt;
       while(acc>=frameDur && idx>=0){
-        drawFn(frames[idx]);
-        onFrame(Math.max(0, clip.duration-idx*frameDur));
+        const localT = Math.max(0, clip.duration-idx*frameDur);
+        drawFn(frames[idx], localT);
+        onFrame(localT);
         idx--; acc-=frameDur;
       }
       if(idx<0){ resolve(); return; }
@@ -4234,12 +5606,25 @@ function drawSubtitleText(context, sub, d, interactive){
   context.textAlign='center'; context.textBaseline='middle';
   const x = sub.x==null ? d.w/2 : sub.x;
   const y = sub.y==null ? d.h*0.88 : sub.y;
+  const fillColor = sub.color || '#ffffff';
 
-  context.lineWidth = Math.max(2, fontSize*0.12);
-  context.lineJoin = 'round';
-  context.strokeStyle = 'rgba(0,0,0,0.85)';
-  context.strokeText(sub.text, x, y);
-  context.fillStyle = sub.color || '#ffffff';
+  if(sub.glow){
+    context.save();
+    context.shadowColor = sub.glowColor || fillColor;
+    context.shadowBlur = Math.max(4, fontSize*0.4);
+    context.fillStyle = fillColor;
+    context.fillText(sub.text, x, y);
+    context.fillText(sub.text, x, y); // 한 번 더 그려서 번지는 느낌을 더 진하게
+    context.restore();
+  }
+
+  if(sub.outline !== false){ // 기본값 켜짐 (기존 동작과 동일)
+    context.lineWidth = Math.max(2, fontSize*0.12);
+    context.lineJoin = 'round';
+    context.strokeStyle = sub.outlineColor || 'rgba(0,0,0,0.85)';
+    context.strokeText(sub.text, x, y);
+  }
+  context.fillStyle = fillColor;
   context.fillText(sub.text, x, y);
 
   if(interactive && isDraggingSubtitle && sub.id===state.selectedSubtitleId){
@@ -4266,9 +5651,30 @@ function drawSubtitleLayer(t){
   });
 }
 
-// drag to pan: moves either the selected clip or the selected subtitle
-let dragging=false, dragStart=null, isDraggingSubtitle=false;
+// drag to pan: moves either the selected clip or the selected subtitle; dragging the corner handle resizes instead
+let dragging=false, dragStart=null, isDraggingSubtitle=false, isResizing=false, isDraggingWatermark=false;
 canvas.addEventListener('pointerdown', (e)=>{
+  if(state.watermark.enabled && state.watermark.el){
+    const d = dims();
+    const wm = state.watermark;
+    const iw = wm.el.naturalWidth||wm.el.width, ih = wm.el.naturalHeight||wm.el.height;
+    if(iw && ih){
+      const ww = d.w*wm.scale, wh = ww*(ih/iw);
+      const wx = wm.x!=null ? wm.x : d.w-ww-d.w*0.04;
+      const wy = wm.y!=null ? wm.y : d.h-wh-d.w*0.04;
+      const rect = canvas.getBoundingClientRect();
+      const ratio = canvas.width/rect.width;
+      const canvasX = (e.clientX-rect.left)*ratio, canvasY = (e.clientY-rect.top)*ratio;
+      if(canvasX>=wx && canvasX<=wx+ww && canvasY>=wy && canvasY<=wy+wh){
+        dragging = true;
+        isDraggingWatermark = true;
+        isDraggingSubtitle = false;
+        canvas.classList.add('dragging');
+        dragStart = {x:e.clientX, y:e.clientY, ox:wx, oy:wy};
+        return;
+      }
+    }
+  }
   if(state.dragTarget==='subtitle' && state.selectedSubtitleId){
     const sub = state.subtitles.find(s=>s.id===state.selectedSubtitleId);
     if(!sub) return;
@@ -4282,6 +5688,23 @@ canvas.addEventListener('pointerdown', (e)=>{
   const clip = state.clips.find(c=>c.id===state.selectedClipId);
   if(!clip) return;
   state.previewMode = 'edit'; // 드래그 시작 시 자동으로 위치조정 모드로 전환
+  const rect = canvas.getBoundingClientRect();
+  const ratio = canvas.width/rect.width;
+  const canvasX = (e.clientX-rect.left)*ratio, canvasY = (e.clientY-rect.top)*ratio;
+  const pos = computeResizeHandlePos(clip, clip.el, dims());
+  if(pos){
+    const hitR = Math.max(10, dims().h*0.014) * 1.8; // 살짝 여유있게 클릭 판정
+    if(Math.hypot(canvasX-pos.hx, canvasY-pos.hy) <= hitR){
+      isResizing = true;
+      dragging = true;
+      isDraggingSubtitle = false;
+      canvas.classList.add('dragging');
+      const initDist = Math.max(1, Math.hypot(pos.hx-pos.cx, pos.hy-pos.cy));
+      dragStart = { initScale: clip.scale, cx: pos.cx, cy: pos.cy, initDist };
+      return;
+    }
+  }
+  isResizing = false;
   dragging=true;
   isDraggingSubtitle=false;
   canvas.classList.add('dragging');
@@ -4291,6 +5714,11 @@ window.addEventListener('pointermove', (e)=>{
   if(!dragging) return;
   const rect = canvas.getBoundingClientRect();
   const ratio = canvas.width/rect.width;
+  if(isDraggingWatermark){
+    state.watermark.x = dragStart.ox + (e.clientX-dragStart.x)*ratio;
+    state.watermark.y = dragStart.oy + (e.clientY-dragStart.y)*ratio;
+    return;
+  }
   if(state.dragTarget==='subtitle' && state.selectedSubtitleId){
     const sub = state.subtitles.find(s=>s.id===state.selectedSubtitleId);
     if(!sub) return;
@@ -4300,40 +5728,74 @@ window.addEventListener('pointermove', (e)=>{
   }
   const clip = state.clips.find(c=>c.id===state.selectedClipId);
   if(!clip) return;
+  if(isResizing){
+    const canvasX = (e.clientX-rect.left)*ratio, canvasY = (e.clientY-rect.top)*ratio;
+    const dist = Math.max(1, Math.hypot(canvasX-dragStart.cx, canvasY-dragStart.cy));
+    clip.scale = Math.max(0.1, Math.min(10, dragStart.initScale * (dist/dragStart.initDist)));
+    return;
+  }
   clip.offsetX = dragStart.ox + (e.clientX-dragStart.x)*ratio;
   clip.offsetY = dragStart.oy + (e.clientY-dragStart.y)*ratio;
 });
-window.addEventListener('pointerup', ()=>{ dragging=false; isDraggingSubtitle=false; canvas.classList.remove('dragging'); });
+window.addEventListener('pointerup', ()=>{
+  if(isResizing) renderInspector(); // 슬라이더 표시도 최신 배율로 맞춰줌
+  dragging=false; isDraggingSubtitle=false; isResizing=false; isDraggingWatermark=false; canvas.classList.remove('dragging');
+});
 
 
 // continuous preview render loop
 function previewLoop(){
   requestAnimationFrame(previewLoop);
   if(state.rendering) return; // 렌더링 중엔 별도 캔버스 사용
+  updateFilmstripPlayhead();
 
   if(state.previewMode==='edit'){
     const clip = state.clips.find(c=>c.id===state.selectedClipId);
     if(clip){
-      if(Math.abs(clip.el.currentTime - clip.duration*0.4) > 0.2 && clip.el.readyState>=1){
-        try{ clip.el.currentTime = clip.duration*0.4; }catch(e){}
+      if(backgroundReverseCacheClipId === clip.id){
+        // 지금 보고 있는 클립의 역방향 프레임을 백그라운드에서 준비 중 —
+        // 같은 영상 엘리먼트를 이 편집 미리보기 루프랑 동시에 seek하면 서로 자리를 뺏어서 멈춘 것처럼 보이므로
+        // 준비가 끝날 때까지는 진행 상황만 화면에 보여주고 이 루프는 엘리먼트를 건드리지 않는다.
+        const p = backgroundReverseCacheProgress;
+        drawPrepOverlay(`역방향 준비 중… ${p.done}/${p.total||'?'}`, p.total ? p.done/p.total : 0);
+      } else {
+        if(!clip.isImage){
+          const speed = (clip.fx && clip.fx.speed) || 1;
+          const targetT = clip.trimStart + clip.duration*0.4*speed;
+          if(Math.abs(clip.el.currentTime - targetT) > 0.2 && clip.el.readyState>=1){
+            try{ clip.el.currentTime = targetT; }catch(e){}
+          }
+        }
+        drawClipFrame(clip.el, clip, true, clip.duration*0.4);
+        drawResizeHandle(clip, dims());
       }
-      drawClipFrame(clip.el, clip);
+    } else {
+      clearStage();
     }
     drawBarsLayer(ctx, null);
     drawSubtitleLayer(null);
+    drawWatermark(ctx, dims());
   } else if(state.previewMode==='scrub'){
     const t = parseFloat(document.getElementById('scrubber').value)||0;
     const hit = clipAtTime(t);
     if(hit){
       const {clip, localTime} = hit;
-      const target = clip.reverse ? (clip.duration-localTime) : localTime;
-      if(Math.abs(clip.el.currentTime-target)>0.08 && clip.el.readyState>=1){
-        try{ clip.el.currentTime = Math.max(0,Math.min(clip.duration,target)); }catch(e){}
+      if(!clip.isImage){
+        const speed = (clip.fx && clip.fx.speed) || 1;
+        const localTarget = clip.reverse ? (clip.duration-localTime) : localTime;
+        const target = clip.trimStart + Math.max(0,Math.min(clip.duration,localTarget))*speed;
+        if(Math.abs(clip.el.currentTime-target)>0.08 && clip.el.readyState>=1){
+          try{ clip.el.currentTime = target; }catch(e){}
+        }
       }
-      drawClipFrame(clip.el, clip);
+      drawClipFrame(clip.el, clip, true, localTime);
+    } else {
+      clearStage();
     }
+    drawOverlayAt(ctx, dims(), t);
     drawBarsLayer(ctx, t);
     drawSubtitleLayer(t);
+    drawWatermark(ctx, dims());
     document.getElementById('timeNow').textContent = fmtTime(t);
   } else if(state.previewMode==='play'){
     // handled by playPreview loop
@@ -4349,57 +5811,125 @@ function updateScrubberRange(){
   document.getElementById('timeTotal').textContent = fmtTime(total);
   if(state.clips.length && state.previewMode==='edit'){ /* keep edit mode */ }
 }
-scrubber.oninput = ()=>{ state.previewMode='scrub'; };
+scrubber.oninput = ()=>{
+  if(previewPlaying){
+    // 재생 중에 스크러버를 움직이면, 기존 재생 루프를 확실히 멈추고 나서 이동해야 함 —
+    // 안 그러면 재생 루프와 이동(seek)이 같은 영상 엘리먼트를 동시에 붙잡으면서 심하게 끊긴다.
+    previewAbort = true;
+    previewPlaying = false;
+    state.clips.forEach(c=>{ try{ c.el.pause(); c.el.muted=true; }catch(e){} });
+    stopPreviewBackgroundAudio(); stopOverlayAudio();
+    document.getElementById('playPreviewBtn').textContent = '▶ 미리보기 재생';
+  }
+  state.previewMode='scrub';
+  updateFilmstripPlayhead();
+};
 
 let previewPlaying = false;
 let previewAbort = false;
 
-async function playClipPreview(clip, elapsedBase, transDur, nextClip, alreadyPlaying){
+async function playClipPreview(clip, elapsedBase, transDur, nextClip, alreadyPlaying, startLocalT){
+  startLocalT = startLocalT || 0;
   function updateTimeUI(local){
     const t = elapsedBase+local;
     scrubber.value = t.toFixed(2);
     document.getElementById('timeNow').textContent = fmtTime(t);
+    drawOverlayAt(ctx, dims(), t, true);
     drawBarsLayer(ctx, t);
     drawSubtitleLayer(t);
+    drawWatermark(ctx, dims());
   }
-  if(clip.reverse){
-    clip.el.pause();
-    await playReverseCached(
-      clip,
-      (frame)=>renderClipToContext(ctx, frame, clip, dims()),
-      (localT)=>updateTimeUI(localT),
-      ()=>previewAbort
-    );
-  } else {
+  if(clip.isImage){
     await new Promise(resolve=>{
-      if(!alreadyPlaying){
-        clip.el.currentTime = 0;
-        clip.el.muted = false; // 미리보기에서도 실제 소리가 나오도록
-        const p = clip.el.play();
-        if(p && p.catch) p.catch(()=>{ /* 자동재생이 막히면 아래 draw 루프에서 곧바로 종료됨 */ });
-      }
+      const startWallTime = performance.now() - startLocalT*1000;
       let nextStarted = false;
       function draw(){
-        if(previewAbort){ clip.el.pause(); clip.el.muted=true; resolve(); return; }
-        if(clip.el.paused || clip.el.ended){ clip.el.muted=true; resolve(); return; }
-        const localT = clip.el.currentTime;
+        if(previewAbort){ resolve(); return; }
+        const localT = (performance.now()-startWallTime)/1000;
+        if(localT >= clip.duration){ resolve(); return; }
         const remain = clip.duration - localT;
 
         if(transDur>0 && nextClip && remain<=transDur && !nextStarted){
           nextStarted = true;
-          nextClip.el.currentTime = 0;
-          nextClip.el.muted = false;
-          const p2 = nextClip.el.play();
-          if(p2 && p2.catch) p2.catch(()=>{});
+          if(!nextClip.isImage){
+            nextClip.el.currentTime = nextClip.trimStart;
+            nextClip.el.playbackRate = (nextClip.fx && nextClip.fx.speed) || 1;
+            nextClip.el.muted = !!nextClip.audioMuted;
+            const p2 = nextClip.el.play();
+            if(p2 && p2.catch) p2.catch(()=>{});
+          }
         }
 
-        drawClipFrame(clip.el, clip, true);
         if(nextStarted){
+          const nextLocalT = nextClip.isImage ? 0 : (nextClip.el.currentTime-nextClip.trimStart)/((nextClip.fx&&nextClip.fx.speed)||1);
           const progress = Math.min(1, Math.max(0, 1-remain/transDur));
-          ctx.save();
-          ctx.globalAlpha = progress;
-          drawClipFrame(nextClip.el, nextClip, false); // 배경을 다시 채우지 않고 겹쳐 그림 — 진짜 크로스페이드
-          ctx.restore();
+          drawTransitionFrame(ctx, dims(), clip, clip.el, localT, nextClip, nextClip.el, nextLocalT, progress, clip.transitionType);
+        } else {
+          drawClipFrame(clip.el, clip, true, localT);
+        }
+
+        updateTimeUI(localT);
+        requestAnimationFrame(draw);
+      }
+      draw();
+    });
+  } else if(clip.reverse){
+    clip.el.pause();
+    await playReverseCached(
+      clip,
+      (frame, localT)=>renderClipToContext(ctx, frame, clip, dims(), true, localT),
+      (localT)=>updateTimeUI(localT),
+      ()=>previewAbort,
+      null,
+      startLocalT
+    );
+  } else {
+    const speed = (clip.fx && clip.fx.speed) || 1;
+    if(!alreadyPlaying){
+      await seekTo(clip.el, clip.trimStart + startLocalT*speed); // 재생을 시작하기 전에 먼저 정확한 위치로 이동을 끝내서, 이전 화면이 잠깐 보이는 깜빡임을 방지
+    }
+    await new Promise(resolve=>{
+      if(!alreadyPlaying){
+        clip.el.muted = !!clip.audioMuted; // 클립별 음소거 설정을 반영
+        clip.el.playbackRate = speed; // 슬로우모션/빠른감기 — 실제로 소스가 그 속도로 재생됨
+        const p = clip.el.play();
+        if(p && p.catch) p.catch(()=>{ /* 자동재생이 막히면 아래 draw 루프에서 곧바로 종료됨 */ });
+      }
+      let nextStarted = false;
+      let lastLocalT = -1;
+      let lastAdvanceAt = performance.now();
+      function draw(){
+        if(previewAbort){ clip.el.pause(); clip.el.muted=true; resolve(); return; }
+        const localT = (clip.el.currentTime - clip.trimStart)/speed;
+        if(clip.el.paused || clip.el.ended || localT>=clip.duration){
+          clip.el.pause(); clip.el.muted=true; resolve(); return;
+        }
+        if(localT > lastLocalT + 0.01){ lastLocalT = localT; lastAdvanceAt = performance.now(); }
+        else if(performance.now()-lastAdvanceAt > 5000){
+          // 5초 넘게 재생 위치가 전혀 안 움직이면 멈춘 것으로 보고 강제로 다음 클립으로 넘어감
+          console.warn('재생이 멈춘 것 같아 다음 클립으로 건너뜁니다:', clip.name);
+          clip.el.pause(); clip.el.muted=true; resolve(); return;
+        }
+        const remain = clip.duration - localT;
+
+        if(transDur>0 && nextClip && remain<=transDur && !nextStarted){
+          nextStarted = true;
+          if(!nextClip.isImage){
+            const nextSpeed = (nextClip.fx && nextClip.fx.speed) || 1;
+            nextClip.el.currentTime = nextClip.trimStart;
+            nextClip.el.playbackRate = nextSpeed;
+            nextClip.el.muted = !!nextClip.audioMuted;
+            const p2 = nextClip.el.play();
+            if(p2 && p2.catch) p2.catch(()=>{});
+          }
+        }
+
+        if(nextStarted){
+          const nextLocalT = nextClip.isImage ? 0 : (nextClip.el.currentTime-nextClip.trimStart)/((nextClip.fx&&nextClip.fx.speed)||1);
+          const progress = Math.min(1, Math.max(0, 1-remain/transDur));
+          drawTransitionFrame(ctx, dims(), clip, clip.el, localT, nextClip, nextClip.el, nextLocalT, progress, clip.transitionType);
+        } else {
+          drawClipFrame(clip.el, clip, true, localT);
         }
 
         updateTimeUI(localT);
@@ -4411,10 +5941,11 @@ async function playClipPreview(clip, elapsedBase, transDur, nextClip, alreadyPla
 }
 
 let previewAudioCtx = null;
-function startPreviewBackgroundAudio(totalDur){
+function startPreviewBackgroundAudio(totalDur, contentOffset){
   if(!state.audioPlaylist.length) return;
   previewAudioCtx = new (window.AudioContext||window.webkitAudioContext)();
-  schedulePlaylistAudio(previewAudioCtx, previewAudioCtx.destination, totalDur, previewAudioCtx.currentTime+0.05);
+  const fn = state.audioSettings.layeredMode ? scheduleLayeredPlaylistAudio : schedulePlaylistAudio;
+  fn(previewAudioCtx, previewAudioCtx.destination, totalDur, previewAudioCtx.currentTime+0.05, contentOffset||0);
 }
 function stopPreviewBackgroundAudio(){
   if(previewAudioCtx){
@@ -4428,6 +5959,15 @@ function previewTransitionDuration(clip, next){
   return Math.min(clip.transitionDuration||0.5, clip.duration*0.4, next.duration*0.4);
 }
 
+function getExpandedClipList(){
+  const n = Math.max(1, state.repeatCount||1);
+  const result = [];
+  for(let r=0;r<n;r++){
+    for(const clip of state.clips) result.push(clip);
+  }
+  return result;
+}
+
 async function runPreviewPlayback(){
   if(!state.clips.length || previewPlaying) return;
   previewPlaying = true;
@@ -4439,34 +5979,61 @@ async function runPreviewPlayback(){
   const previewPerClipBudget = (900*1024*1024) / Math.max(1, uniqueUrlsForPreview.size);
   for(const clip of state.clips){
     if(previewAbort) break;
-    if(clip.reverse && !reverseFrameCache.has(clip.url)){
+    if(clip.reverse && !reverseFrameCache.has(clipCacheKey(clip))){
       await getReverseFrames(clip, null, (done, total)=>{
         document.getElementById('playPreviewBtn').textContent = `⏳ 역재생 준비 중… (${done}/${total})`;
+        drawPrepOverlay(`역재생 준비 중… ${done}/${total}`, done/total);
       }, previewPerClipBudget);
       if(previewAbort) break;
       document.getElementById('playPreviewBtn').textContent = '▶ 재생 중…';
     }
   }
 
+  const expanded = getExpandedClipList();
+
   // 전환으로 겹치는 만큼 총 길이가 줄어드는 걸 감안해서 배경음악 길이를 계산
   let totalDurPreview = 0;
-  state.clips.forEach((clip, idx)=>{
-    totalDurPreview += clip.duration - previewTransitionDuration(clip, state.clips[idx+1]);
+  expanded.forEach((clip, idx)=>{
+    totalDurPreview += clip.duration - previewTransitionDuration(clip, expanded[idx+1]);
   });
-  startPreviewBackgroundAudio(totalDurPreview);
 
-  let elapsedBase = 0;
+  // 지금 스크러버가 있는 위치부터 이어서 재생 시작 (항상 처음부터 다시 시작하지 않도록) — 배경 음악도 같은 지점부터 이어짐
+  const resumeAt = Math.max(0, parseFloat(document.getElementById('scrubber').value)||0);
+  let startIdx = 0, startLocalT = 0, cursorAtStart = 0;
+  {
+    let cursor = 0;
+    for(let i=0;i<expanded.length;i++){
+      const clip = expanded[i];
+      if(resumeAt < cursor+clip.duration || i===expanded.length-1){
+        startIdx = i;
+        startLocalT = Math.max(0, Math.min(clip.duration, resumeAt-cursor));
+        cursorAtStart = cursor;
+        break;
+      }
+      cursor += clip.duration;
+    }
+  }
+  startPreviewBackgroundAudio(totalDurPreview, resumeAt);
+
+  let elapsedBase = cursorAtStart;
   let alreadyPlaying = false;
-  for(let i=0; i<state.clips.length; i++){
+  for(let i=startIdx; i<expanded.length; i++){
     if(previewAbort) break;
-    const clip = state.clips[i];
-    const next = state.clips[i+1];
+    const clip = expanded[i];
+    let next = expanded[i+1];
     const transDur = previewTransitionDuration(clip, next);
-    await playClipPreview(clip, elapsedBase, transDur, transDur>0?next:null, alreadyPlaying);
+    if(transDur>0 && next && next.el===clip.el){
+      // 같은 클립이 반복되며 자기 자신과 겹쳐야 하는 경우(예: 클립 1개를 반복 재생) — 임시로 독립된 엘리먼트를 하나 더 써서 겹쳐 재생
+      const tempEl = document.createElement('video');
+      tempEl.src = next.url; tempEl.preload = 'auto'; tempEl.playsInline = true; tempEl.muted = true;
+      next = { ...next, el: tempEl };
+    }
+    const thisStartLocalT = (i===startIdx) ? startLocalT : 0;
+    await playClipPreview(clip, elapsedBase, transDur, transDur>0?next:null, alreadyPlaying, thisStartLocalT);
     elapsedBase += clip.duration - transDur;
     alreadyPlaying = transDur > 0; // 다음 클립이 이미 겹침 구간에서 재생을 시작했으면 이어서 진행
   }
-  stopPreviewBackgroundAudio();
+  stopPreviewBackgroundAudio(); stopOverlayAudio();
   previewPlaying = false;
   document.getElementById('playPreviewBtn').textContent = '▶ 미리보기 재생';
   if(!previewAbort){
@@ -4481,7 +6048,7 @@ document.getElementById('stopPreviewBtn').onclick = ()=>{
   previewAbort = true;
   previewPlaying = false;
   state.clips.forEach(c=>{ try{ c.el.pause(); c.el.muted=true; }catch(e){} });
-  stopPreviewBackgroundAudio();
+  stopPreviewBackgroundAudio(); stopOverlayAudio();
   document.getElementById('playPreviewBtn').textContent = '▶ 미리보기 재생';
   state.previewMode = 'scrub';
 };
@@ -4490,17 +6057,51 @@ document.getElementById('stopPreviewBtn').onclick = ()=>{
 function renderTimeline(){
   const track = document.getElementById('filmstripTrack');
   const total = totalDuration();
+  const n = Math.max(1, state.repeatCount||1);
   track.innerHTML = '';
-  state.clips.forEach(c=>{
-    const w = total>0 ? (c.duration/total*100) : 0;
+
+  function makeSeg(c, idx, widthPct, extraTitle, segStart, segEnd){
     const seg = document.createElement('div');
     seg.className = 'filmstrip-clip' + (c.reverse?' rev':'') + (c.id===state.selectedClipId?' selected':'');
-    seg.style.width = w+'%';
-    seg.textContent = fmtTime(c.duration);
-    seg.title = c.name;
+    seg.style.width = widthPct+'%';
+    seg.dataset.start = segStart;
+    seg.dataset.end = segEnd;
+    seg.innerHTML = `<span class="filmstrip-num">${idx+1}</span>${fmtTime(c.duration)}`;
+    seg.title = c.name + (extraTitle||'');
     seg.onclick = ()=>selectClip(c.id);
-    track.appendChild(seg);
-  });
+    return seg;
+  }
+
+  let cursor = 0;
+  if(n<=20){
+    for(let r=0;r<n;r++){
+      state.clips.forEach((c,idx)=>{
+        const w = total>0 ? (c.duration/total*100) : 0;
+        const segStart = cursor;
+        cursor += c.duration;
+        track.appendChild(makeSeg(c, idx, w, n>1?` (반복 ${r+1}/${n})`:'', segStart, cursor));
+      });
+    }
+  } else {
+    // 반복이 너무 많으면 한 사이클만 그리고 배지로 반복 횟수를 표시 (수백 개 세그먼트를 안 그림)
+    const cDur = cycleDuration();
+    state.clips.forEach((c,idx)=>{
+      const w = cDur>0 ? (c.duration/cDur*100) : 0;
+      const segStart = cursor;
+      cursor += c.duration;
+      track.appendChild(makeSeg(c, idx, w, ` (× ${n}회 반복)`, segStart, cursor));
+    });
+    const repeatLabel = document.createElement('div');
+    repeatLabel.style.cssText = 'position:absolute;top:4px;right:8px;font-size:10.5px;color:var(--amber);background:rgba(0,0,0,0.65);padding:3px 8px;border-radius:5px;font-family:"Space Grotesk",sans-serif;';
+    repeatLabel.textContent = `↻ × ${n}`;
+    track.appendChild(repeatLabel);
+  }
+  const playhead = document.createElement('div');
+  playhead.className = 'filmstrip-playhead';
+  playhead.id = 'filmstripPlayhead';
+  track.appendChild(playhead);
+  updateFilmstripPlayhead();
+
   // sprockets
   ['sprocketsTop','sprocketsBottom'].forEach(id=>{
     const el = document.getElementById(id);
@@ -4511,15 +6112,68 @@ function renderTimeline(){
   updateScrubberRange();
 }
 
+function updateFilmstripPlayhead(){
+  const playhead = document.getElementById('filmstripPlayhead');
+  if(!playhead) return;
+  const total = totalDuration();
+  const t = parseFloat(document.getElementById('scrubber').value)||0;
+  const pct = total>0 ? Math.max(0,Math.min(100, t/total*100)) : 0;
+  playhead.style.left = pct+'%';
+
+  // 지금 재생 위치에 해당하는 세그먼트에 네모 테두리로 표시 (반복이 많아 한 사이클만 그려진 경우엔 나머지 구간과 겹치게 계산)
+  const track = document.getElementById('filmstripTrack');
+  const segs = track.querySelectorAll('.filmstrip-clip');
+  if(!segs.length) return;
+  const lastEnd = parseFloat(segs[segs.length-1].dataset.end || 0);
+  const localT = lastEnd>0 ? (t % lastEnd) : t;
+  segs.forEach(seg=>{
+    const s = parseFloat(seg.dataset.start||0), e = parseFloat(seg.dataset.end||0);
+    seg.classList.toggle('now-playing', localT>=s && localT<e);
+  });
+}
+
 function renderSubTrack(){
   const el = document.getElementById('subTrack');
   const total = totalDuration()||1;
   el.innerHTML='';
   state.subtitles.forEach(s=>{
     const bar = document.createElement('div');
-    bar.className='sub-bar';
+    bar.className='sub-bar' + (s.id===state.selectedSubtitleId ? ' selected' : '');
     bar.style.left = (s.start/total*100)+'%';
     bar.style.width = Math.max(0.5,(s.end-s.start)/total*100)+'%';
+    bar.title = s.text;
+    bar.addEventListener('pointerdown', (e)=>{
+      e.stopPropagation();
+      selectSubtitle(s.id);
+      const rect = bar.getBoundingClientRect();
+      const relX = e.clientX - rect.left;
+      const edgeZone = Math.min(8, rect.width*0.3);
+      const mode = relX < edgeZone ? 'start' : (relX > rect.width-edgeZone ? 'end' : 'move');
+      const trackRect = el.getBoundingClientRect();
+      const startVal = s.start, endVal = s.end;
+      const startClientX = e.clientX;
+      function onMove(ev){
+        const dtSec = ((ev.clientX-startClientX)/trackRect.width) * total;
+        if(mode==='start'){
+          s.start = Math.max(0, Math.min(endVal-0.1, startVal+dtSec));
+        } else if(mode==='end'){
+          s.end = Math.max(startVal+0.1, endVal+dtSec);
+        } else {
+          const dur = endVal-startVal;
+          let ns = startVal+dtSec;
+          ns = Math.max(0, ns);
+          s.start = ns; s.end = ns+dur;
+        }
+        renderSubTrack();
+        renderSubtitleList();
+      }
+      function onUp(){
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+      }
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+    });
     el.appendChild(bar);
   });
 }
@@ -4541,6 +6195,109 @@ function drawBar(context, bar, d){
     context.fillStyle = luminance>0.6 ? '#111111' : '#ffffff';
     context.fillText(bar.text, d.w/2, y0+h/2);
   }
+  context.restore();
+}
+
+function computeOverlayClipAt(t){
+  let cursor = 0;
+  for(const c of state.overlayClips){
+    if(t < cursor + c.duration) return {clip:c, localTime: t-cursor};
+    cursor += c.duration;
+  }
+  return null;
+}
+
+let currentOverlayPlayingClip = null;
+let overlayFrameCache = null;
+let overlayFrameCacheClipId = null;
+let lastOverlayRenderTime = 0;
+const OVERLAY_THROTTLE_MS = 66; // 오버레이는 초당 약 15프레임 정도로만 다시 그려서, 매 프레임 두 영상을 동시에 디코딩/합성하는 부담을 줄임 (내보내기 화질에는 영향 없음)
+
+function stopOverlayAudio(){
+  if(currentOverlayPlayingClip){
+    try{ currentOverlayPlayingClip.el.pause(); currentOverlayPlayingClip.el.muted = true; }catch(e){}
+    currentOverlayPlayingClip = null;
+  }
+}
+
+function drawOverlayAt(context, d, t, allowAudio){
+  const hit = computeOverlayClipAt(t);
+  if(!hit){
+    stopOverlayAudio();
+    overlayFrameCache = null;
+    return;
+  }
+  const {clip, localTime} = hit;
+  if(!clip.isImage){
+    if(allowAudio){
+      if(currentOverlayPlayingClip && currentOverlayPlayingClip.id!==clip.id){
+        try{ currentOverlayPlayingClip.el.pause(); currentOverlayPlayingClip.el.muted = true; }catch(e){}
+        currentOverlayPlayingClip = null;
+      }
+      if(!currentOverlayPlayingClip){
+        try{
+          clip.el.currentTime = clip.trimStart + Math.max(0, Math.min(clip.duration-0.02, localTime));
+          clip.el.muted = !!clip.audioMuted;
+          const p = clip.el.play();
+          if(p && p.catch) p.catch(()=>{});
+          currentOverlayPlayingClip = clip;
+        }catch(e){}
+      }
+    } else {
+      if(currentOverlayPlayingClip) stopOverlayAudio();
+      const target = clip.trimStart + Math.max(0, Math.min(clip.duration-0.02, localTime));
+      if(Math.abs(clip.el.currentTime-target)>0.08 && clip.el.readyState>=1){
+        try{ clip.el.currentTime = target; }catch(e){}
+      }
+    }
+  }
+
+  // 실제로 무거운 작업(효과 적용, 합성)은 초당 15프레임 정도로만 하고, 그 사이 프레임에는 캐시된 것을 재사용
+  const now = performance.now();
+  const clipChanged = overlayFrameCacheClipId !== clip.id;
+  const needsRedraw = clipChanged || !overlayFrameCache || overlayFrameCache.width!==d.w || overlayFrameCache.height!==d.h || (now-lastOverlayRenderTime>=OVERLAY_THROTTLE_MS);
+  if(needsRedraw){
+    if(!overlayFrameCache || overlayFrameCache.width!==d.w || overlayFrameCache.height!==d.h){
+      overlayFrameCache = document.createElement('canvas');
+      overlayFrameCache.width = d.w; overlayFrameCache.height = d.h;
+    }
+    const octx2 = overlayFrameCache.getContext('2d');
+    octx2.clearRect(0,0,d.w,d.h);
+    renderClipToContext(octx2, clip.el, clip, d, false, localTime);
+    overlayFrameCacheClipId = clip.id;
+    lastOverlayRenderTime = now;
+  }
+  context.save();
+  context.globalAlpha = clip.opacity!=null ? clip.opacity : 1;
+  context.drawImage(overlayFrameCache, 0, 0);
+  context.restore();
+}
+
+async function drawOverlayAtExport(context, d, t){
+  const hit = computeOverlayClipAt(t);
+  if(!hit) return;
+  const {clip, localTime} = hit;
+  if(!clip.isImage){
+    const target = clip.trimStart + Math.max(0, Math.min(clip.duration-0.02, localTime));
+    await seekTo(clip.el, target);
+  }
+  context.save();
+  context.globalAlpha = clip.opacity!=null ? clip.opacity : 1;
+  renderClipToContext(context, clip.el, clip, d, false, localTime);
+  context.restore();
+}
+
+function drawWatermark(context, d){
+  const wm = state.watermark;
+  if(!wm.enabled || !wm.el) return;
+  const iw = wm.el.naturalWidth||wm.el.width, ih = wm.el.naturalHeight||wm.el.height;
+  if(!iw || !ih) return;
+  const ww = d.w*wm.scale, wh = ww*(ih/iw);
+  const wx = wm.x!=null ? wm.x : d.w-ww-d.w*0.04;
+  const wy = wm.y!=null ? wm.y : d.h-wh-d.w*0.04;
+  context.save();
+  context.globalAlpha = wm.opacity;
+  context.drawImage(wm.el, wx, wy, ww, wh);
   context.restore();
 }
 
@@ -4608,6 +6365,35 @@ function renderBarList(){
     wrap.appendChild(div);
   });
 }
+
+/* ============================= 워터마크/로고 ============================= */
+document.getElementById('wmEnabled').onchange = (e)=>{ state.watermark.enabled = e.target.checked; };
+document.getElementById('wmUploadBtn').onclick = ()=>document.getElementById('wmInput').click();
+document.getElementById('wmInput').onchange = (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const img = new Image();
+  img.onload = ()=>{
+    state.watermark.el = img;
+    state.watermark.enabled = true;
+    document.getElementById('wmEnabled').checked = true;
+    document.getElementById('wmFileName').textContent = '✓ ' + file.name;
+  };
+  img.onerror = ()=>{ alert('로고 이미지를 불러오지 못했습니다.'); };
+  img.src = URL.createObjectURL(file);
+  e.target.value = '';
+};
+document.getElementById('wmScale').oninput = (e)=>{
+  state.watermark.scale = parseFloat(e.target.value)/100;
+  document.getElementById('wmScaleVal').textContent = e.target.value+'%';
+};
+document.getElementById('wmOpacity').oninput = (e)=>{
+  state.watermark.opacity = parseFloat(e.target.value)/100;
+  document.getElementById('wmOpacityVal').textContent = e.target.value+'%';
+};
+document.getElementById('wmResetPosBtn').onclick = ()=>{
+  state.watermark.x = null; state.watermark.y = null;
+};
 
 /* ============================= 자막·배경 바 템플릿 (다음 영상에서 재사용) ============================= */
 function getTemplates(){
@@ -4698,7 +6484,7 @@ audioInput.onchange = async (e)=>{
   });
 });
 audioDropEl.addEventListener('drop', async (e)=>{
-  const files = Array.from(e.dataTransfer.files || []).filter(f=>f.type.startsWith('audio/'));
+  const files = Array.from(e.dataTransfer.files || []).filter(f=>f.type.startsWith('audio/')||f.type.startsWith('video/'));
   for(const f of files) await loadAudioFile(f);
 });
 
@@ -4710,13 +6496,7 @@ async function loadAudioFile(file){
   const track = { id:nextId(), file, buffer, name:file.name, duration:buffer.duration, volume:0.9 };
   state.audioPlaylist.push(track);
   renderAudioPanel();
-}
-
-function moveTrack(i, dir){
-  const j = i+dir;
-  if(j<0 || j>=state.audioPlaylist.length) return;
-  [state.audioPlaylist[i], state.audioPlaylist[j]] = [state.audioPlaylist[j], state.audioPlaylist[i]];
-  renderAudioPanel();
+  if(pendingProjectImport) tryMatchPendingAudio();
 }
 
 function deleteTrack(id){
@@ -4745,12 +6525,11 @@ function renderAudioPanel(){
   if(!pl.length){ box.innerHTML=''; return; }
 
   const listHtml = pl.map((t,i)=>`
-    <div class="clip-item" style="cursor:default;">
+    <div class="clip-item" draggable="true" data-track-id="${t.id}">
+      <span class="drag-handle" title="드래그해서 순서 바꾸기">⠿</span>
       <span class="idx">${i+1}</span>
       <span class="name kr" title="${t.name}">${t.name}</span>
       <span class="dur mono">${fmtTime(t.duration)}</span>
-      <button class="icon-btn" data-act="up" data-id="${t.id}" title="위로">▲</button>
-      <button class="icon-btn" data-act="down" data-id="${t.id}" title="아래로">▼</button>
       <button class="icon-btn danger" data-act="del" data-id="${t.id}" title="삭제">✕</button>
     </div>
     <input type="range" min="0" max="1.5" step="0.01" value="${t.volume}" data-act="trackvol" data-id="${t.id}" style="margin:-6px 0 10px 0;">
@@ -4760,23 +6539,53 @@ function renderAudioPanel(){
     <div style="margin-top:10px;">${listHtml}</div>
     <div style="background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:6px;">
       <label class="row" style="align-items:center;gap:8px;">
-        <input type="checkbox" id="plLoop" ${s.loopPlaylist?'checked':''}> 영상 길이에 맞춰 재생목록 반복 재생
+        <input type="checkbox" id="plLayered" ${s.layeredMode?'checked':''}> 여러 곡을 동시에 겹쳐서 재생 (예: 음악 + 빗소리)
       </label>
-      <label>트랙 전환 크로스페이드 <span class="val-badge" id="crossfadeVal">${s.crossfade.toFixed(1)}s</span></label>
-      <input type="range" id="crossfade" min="0" max="4" step="0.1" value="${s.crossfade}">
+      <div class="footer-note" style="margin-top:2px;">이 옵션을 켜면 재생목록의 모든 곡이 순서대로가 아니라 처음부터 동시에 재생되고, 영상 길이에 맞춰 각자 독립적으로 반복돼요. 곡마다 볼륨을 다르게 줘서 배경음악 위에 빗소리·화이트노이즈 같은 걸 얹을 때 좋아요.</div>
+      <label class="row" style="align-items:center;gap:8px;margin-top:10px;">
+        <input type="checkbox" id="plLoop" ${s.loopPlaylist?'checked':''}> 영상 길이에 맞춰 반복 재생
+      </label>
+      <div id="crossfadeWrap" style="${s.layeredMode?'display:none;':''}">
+        <label>트랙 전환 크로스페이드 <span class="val-badge" id="crossfadeVal">${s.crossfade.toFixed(1)}s</span></label>
+        <input type="range" id="crossfade" min="0" max="4" step="0.1" value="${s.crossfade}">
+      </div>
       <label>전체 페이드 인 <span class="val-badge" id="fadeInVal">${s.fadeIn.toFixed(1)}s</span></label>
       <input type="range" id="fadeIn" min="0" max="5" step="0.1" value="${s.fadeIn}">
       <label>전체 페이드 아웃 <span class="val-badge" id="fadeOutVal">${s.fadeOut.toFixed(1)}s</span></label>
       <input type="range" id="fadeOut" min="0" max="5" step="0.1" value="${s.fadeOut}">
-      <div class="footer-note">재생목록 순서대로 이어서 재생되고, 트랙이 바뀔 때마다 자연스럽게 크로스페이드 됩니다. 반복 재생을 켜면 영상 길이에 맞춰 재생목록 전체가 다시 처음부터 이어집니다.</div>
+      <div class="footer-note">${s.layeredMode ? '모든 곡이 동시에, 각자 반복되며 재생됩니다.' : '재생목록 순서대로 이어서 재생되고, 트랙이 바뀔 때마다 자연스럽게 크로스페이드 됩니다. 반복 재생을 켜면 영상 길이에 맞춰 재생목록 전체가 다시 처음부터 이어집니다.'}</div>
+      <label class="row" style="align-items:center;gap:8px;margin-top:12px;">
+        <input type="checkbox" id="plSubtitles" ${s.showTrackSubtitles?'checked':''}> 곡 제목 자동 자막 (파일명, 확장자 제외)
+      </label>
+      <button class="secondary" id="plGenSubBtn" style="width:100%;margin-top:8px;">자막 생성 / 새로고침</button>
+      <div class="footer-note" style="margin-top:4px;">곡이 바뀔 때마다 파일명이 자막으로 자동으로 뜨도록 만들어줘요. 만들어진 자막은 "자막" 목록에 추가되고, 거기서 위치·크기·글꼴을 자유롭게 바꿀 수 있어요. 곡이나 재생목록 설정을 바꾸면 다시 눌러서 새로고침해주세요.</div>
     </div>
   `;
 
-  box.querySelectorAll('[data-act=up]').forEach(btn=>{
-    btn.onclick = ()=>moveTrack(pl.findIndex(t=>t.id===btn.dataset.id), -1);
-  });
-  box.querySelectorAll('[data-act=down]').forEach(btn=>{
-    btn.onclick = ()=>moveTrack(pl.findIndex(t=>t.id===btn.dataset.id), 1);
+  box.querySelectorAll('[data-track-id]').forEach(row=>{
+    row.addEventListener('dragstart', (e)=>{
+      e.dataTransfer.setData('text/plain', row.dataset.trackId);
+      e.dataTransfer.effectAllowed = 'move';
+      row.classList.add('dragging-row');
+    });
+    row.addEventListener('dragend', ()=>row.classList.remove('dragging-row'));
+    row.addEventListener('dragover', (e)=>{ e.preventDefault(); e.dataTransfer.dropEffect='move'; row.classList.add('drag-over-row'); });
+    row.addEventListener('dragleave', ()=>row.classList.remove('drag-over-row'));
+    row.addEventListener('drop', (e)=>{
+      e.preventDefault();
+      row.classList.remove('drag-over-row');
+      const draggedId = e.dataTransfer.getData('text/plain');
+      const targetId = row.dataset.trackId;
+      if(!draggedId || draggedId===targetId) return;
+      const fromIdx = pl.findIndex(t=>t.id===draggedId);
+      const toIdxOriginal = pl.findIndex(t=>t.id===targetId);
+      if(fromIdx===-1 || toIdxOriginal===-1) return;
+      const [moved] = pl.splice(fromIdx,1);
+      let insertAt = pl.findIndex(t=>t.id===targetId);
+      if(fromIdx < toIdxOriginal) insertAt += 1;
+      pl.splice(insertAt,0,moved);
+      renderAudioPanel();
+    });
   });
   box.querySelectorAll('[data-act=del]').forEach(btn=>{
     btn.onclick = ()=>deleteTrack(btn.dataset.id);
@@ -4788,52 +6597,366 @@ function renderAudioPanel(){
     };
   });
   document.getElementById('plLoop').onchange=(e)=>{ s.loopPlaylist = e.target.checked; };
+  document.getElementById('plLayered').onchange=(e)=>{ s.layeredMode = e.target.checked; renderAudioPanel(); };
   document.getElementById('crossfade').oninput=(e)=>{ s.crossfade=parseFloat(e.target.value); document.getElementById('crossfadeVal').textContent=s.crossfade.toFixed(1)+'s'; };
   document.getElementById('fadeIn').oninput=(e)=>{ s.fadeIn=parseFloat(e.target.value); document.getElementById('fadeInVal').textContent=s.fadeIn.toFixed(1)+'s'; };
   document.getElementById('fadeOut').oninput=(e)=>{ s.fadeOut=parseFloat(e.target.value); document.getElementById('fadeOutVal').textContent=s.fadeOut.toFixed(1)+'s'; };
+  document.getElementById('plSubtitles').onchange=(e)=>{
+    s.showTrackSubtitles = e.target.checked;
+    if(s.showTrackSubtitles) generatePlaylistSubtitles();
+    else removePlaylistSubtitles();
+  };
+  document.getElementById('plGenSubBtn').onclick = ()=>{
+    document.getElementById('plSubtitles').checked = true;
+    s.showTrackSubtitles = true;
+    generatePlaylistSubtitles();
+  };
 }
 
-// 재생목록을 순서대로 이어 재생 (트랙 전환마다 크로스페이드). loopPlaylist가 켜져 있으면 totalDur를 채울 때까지 처음부터 반복.
-function schedulePlaylistAudio(audioCtx, dest, totalDur, startAt){
+// 재생목록 재생 순서/타이밍을 계산 (오디오 스케줄링과 동일한 로직) — 자막 생성과 설명 트랙리스트에서 공용으로 사용
+function buildPlaylistTimeline(totalDur){
   const pl = state.audioPlaylist;
-  if(!pl.length) return;
+  if(!pl.length || totalDur<=0) return [];
   const s = state.audioSettings;
   const cf = effectiveCrossfade();
-
-  const master = audioCtx.createGain();
-  master.connect(dest);
-  const fadeIn = Math.min(s.fadeIn, totalDur/2);
-  const fadeOut = Math.min(s.fadeOut, totalDur/2);
-  master.gain.setValueAtTime(0.0001, startAt);
-  master.gain.linearRampToValueAtTime(1, startAt+Math.max(fadeIn,0.01));
-  master.gain.setValueAtTime(1, startAt+Math.max(fadeIn,totalDur-fadeOut));
-  master.gain.linearRampToValueAtTime(0.0001, startAt+totalDur);
-
-  let t = startAt;
-  const end = startAt+totalDur;
+  const timeline = [];
+  let t = 0;
   let idx = 0;
-  while(t<end){
+  while(t<totalDur){
     const track = pl[idx % pl.length];
-    const src = audioCtx.createBufferSource();
-    src.buffer = track.buffer;
-    const g = audioCtx.createGain();
-    src.connect(g); g.connect(master);
     const segStart = t;
-    const segEnd = Math.min(t+track.duration, end+cf);
-    g.gain.setValueAtTime(0.0001, segStart);
-    g.gain.linearRampToValueAtTime(track.volume, segStart+Math.max(cf,0.01));
-    if(cf>0){
-      g.gain.setValueAtTime(track.volume, Math.max(segStart+cf, segEnd-cf));
-      g.gain.linearRampToValueAtTime(0.0001, segEnd);
-    } else {
-      g.gain.setValueAtTime(track.volume, segEnd-0.02);
-    }
-    src.start(segStart);
-    src.stop(segEnd+0.05);
+    const segEnd = Math.min(t+track.duration, totalDur);
+    timeline.push({track, segStart, segEnd});
     t = segStart + track.duration - cf;
     idx++;
     if(!s.loopPlaylist && idx>=pl.length) break;
   }
+  return timeline;
+}
+
+function generatePlaylistSubtitles(){
+  if(!state.audioPlaylist.length){ alert('재생목록에 곡을 먼저 추가해주세요.'); return; }
+  const total = totalDuration();
+  if(total<=0){ alert('영상 클립을 먼저 추가해주세요.'); return; }
+  const timeline = buildPlaylistTimeline(total);
+  state.subtitles = state.subtitles.filter(sub=>!sub.autoPlaylist); // 기존 자동 생성 자막만 교체, 직접 만든 자막은 유지
+  timeline.forEach(({track, segStart, segEnd})=>{
+    const label = (track.name||'').replace(/\.[^.]+$/, '');
+    state.subtitles.push({
+      id: nextId(), text: label, start: segStart, end: segEnd,
+      opacity: 1, x: null, y: null,
+      fontFamily: "'Noto Sans KR', sans-serif",
+      fontSize: defaultSubSize(),
+      autoPlaylist: true
+    });
+  });
+  renderSubtitleList();
+  renderSubTrack();
+}
+
+function removePlaylistSubtitles(){
+  state.subtitles = state.subtitles.filter(sub=>!sub.autoPlaylist);
+  renderSubtitleList();
+  renderSubTrack();
+}
+
+// 내보내기 전용: 전체를 한 번에 오프라인 렌더링하면 몇 시간짜리 영상에서 오디오 버퍼만 수십 GB가 될 수 있어서,
+// 재생목록 트랙(또는 재생목록이 없으면 무음 구간) 단위로 나눠서 그때그때 렌더링 → 인코딩 → 버리기를 반복한다.
+const clipAudioBufferCache = new Map(); // clip.url -> Promise<AudioBuffer|null>
+
+function encodeAudioBuffer(buffer, audioEncoder, sampleOffset, sampleRate){
+  const ch0 = buffer.getChannelData(0);
+  const ch1 = buffer.numberOfChannels>1 ? buffer.getChannelData(1) : ch0;
+  const total = buffer.length;
+  const chunkSize = sampleRate*2; // 한 번에 2초씩 인코딩 (호출 횟수를 줄여 오래 걸리는 걸 방지)
+  for(let offset=0; offset<total; offset+=chunkSize){
+    const len = Math.min(chunkSize, total-offset);
+    const interleaved = new Float32Array(len*2);
+    for(let i=0;i<len;i++){
+      interleaved[i*2] = ch0[offset+i];
+      interleaved[i*2+1] = ch1[offset+i];
+    }
+    const audioData = new AudioData({
+      format:'f32', sampleRate, numberOfFrames:len, numberOfChannels:2,
+      timestamp: Math.round(((sampleOffset+offset)/sampleRate)*1e6),
+      data: interleaved
+    });
+    audioEncoder.encode(audioData);
+    audioData.close();
+  }
+}
+function getClipAudioBuffer(clip, decodeCtx){
+  if(clipAudioBufferCache.has(clip.url)) return clipAudioBufferCache.get(clip.url);
+  const p = (async ()=>{
+    try{
+      const arrBuf = await clip.file.arrayBuffer();
+      return await decodeCtx.decodeAudioData(arrBuf);
+    }catch(e){
+      console.warn('클립의 원본 소리를 읽지 못했습니다(오디오 트랙이 없거나 지원되지 않는 형식일 수 있음):', clip.name, e);
+      return null;
+    }
+  })();
+  clipAudioBufferCache.set(clip.url, p);
+  return p;
+}
+
+async function renderMixedAudioToEncoder(renderSegments, totalDur, audioEncoder, sampleRate, onProgress){
+  const chunkDur = 10; // 10초 단위로 나눠서 렌더링 (메모리 절약 + 여러 소리를 한 구간에서 섞을 수 있게)
+  const s = state.audioSettings;
+  const cf = effectiveCrossfade();
+  const fadeIn = Math.min(s.fadeIn, totalDur/2);
+  const fadeOut = Math.min(s.fadeOut, totalDur/2);
+  const hasMusic = state.audioPlaylist.length>0;
+  const musicTimeline = (hasMusic && !s.layeredMode) ? buildPlaylistTimeline(totalDur) : [];
+
+  // 오버레이 레이어도 자체 타임라인(0초부터 순서대로)을 만들어 메인 클립과 같은 방식으로 섞는다
+  let overlayCursor = 0;
+  const overlaySegments = state.overlayClips.map(c=>{
+    const seg = { clip:c, segStart:overlayCursor, duration:c.duration };
+    overlayCursor += c.duration;
+    return seg;
+  });
+
+  // 음소거 안 된 클립들의 원본 소리를 미리 디코딩 (같은 원본은 한 번만)
+  const decodeCtx = new (window.AudioContext||window.webkitAudioContext)();
+  const clipBuffers = new Map(); // url -> AudioBuffer|null
+  const audibleClipSegs = renderSegments.filter(seg=>!seg.clip.isImage && !seg.clip.reverse && !seg.clip.audioMuted)
+    .concat(overlaySegments.filter(seg=>!seg.clip.isImage && !seg.clip.reverse && !seg.clip.audioMuted));
+  const uniqueUrls = [...new Set(audibleClipSegs.map(seg=>seg.clip.url))];
+  for(const url of uniqueUrls){
+    const seg = audibleClipSegs.find(sg=>sg.clip.url===url);
+    clipBuffers.set(url, await getClipAudioBuffer(seg.clip, decodeCtx));
+    if(renderAbortRequested) throw new RenderAbortedError();
+  }
+  try{ decodeCtx.close(); }catch(e){}
+
+  let sampleCursor = 0;
+  for(let chunkStart=0; chunkStart<totalDur; chunkStart+=chunkDur){
+    if(renderAbortRequested) throw new RenderAbortedError();
+    const chunkEnd = Math.min(chunkStart+chunkDur, totalDur);
+    const chunkLen = chunkEnd-chunkStart;
+    if(chunkLen<=0) continue;
+    const numSamples = Math.max(1, Math.round(chunkLen*sampleRate));
+    const offlineCtx = new OfflineAudioContext(2, numSamples, sampleRate);
+    const master = offlineCtx.createGain();
+    master.connect(offlineCtx.destination);
+
+    // --- 배경 음악 레이어 ---
+    if(hasMusic){
+      const musicGain = offlineCtx.createGain();
+      musicGain.connect(master);
+      if(s.layeredMode){
+        state.audioPlaylist.forEach(track=>{
+          if(track.duration<=0) return;
+          const trackG = offlineCtx.createGain();
+          trackG.gain.value = track.volume;
+          trackG.connect(musicGain);
+          if(!s.loopPlaylist){
+            const overlapStart = Math.max(0, chunkStart);
+            const overlapEnd = Math.min(track.duration, chunkEnd);
+            if(overlapEnd>overlapStart){
+              const src = offlineCtx.createBufferSource();
+              src.buffer = track.buffer; src.connect(trackG);
+              src.start(overlapStart-chunkStart, overlapStart, overlapEnd-overlapStart);
+            }
+          } else {
+            let repStart = Math.floor(chunkStart/track.duration) * track.duration;
+            while(repStart < chunkEnd){
+              const overlapStart = Math.max(repStart, chunkStart);
+              const overlapEnd = Math.min(repStart+track.duration, chunkEnd);
+              if(overlapEnd>overlapStart){
+                const src = offlineCtx.createBufferSource();
+                src.buffer = track.buffer; src.connect(trackG);
+                src.start(overlapStart-chunkStart, overlapStart-repStart, overlapEnd-overlapStart);
+              }
+              repStart += track.duration;
+            }
+          }
+        });
+      } else {
+        musicTimeline.forEach(({track, segStart, segEnd})=>{
+          const overlapStart = Math.max(segStart, chunkStart);
+          const overlapEnd = Math.min(segEnd, chunkEnd);
+          if(overlapEnd<=overlapStart) return;
+          const trackG = offlineCtx.createGain();
+          trackG.connect(musicGain);
+          const localCf = Math.max(0, Math.min(cf, (segEnd-segStart)/2.5));
+          const fadeInEnd = segStart+Math.max(localCf,0.01);
+          const fadeOutStart = Math.max(segStart+localCf, segEnd-localCf);
+          if(overlapStart <= fadeInEnd){
+            trackG.gain.setValueAtTime(0.0001, overlapStart-chunkStart);
+            trackG.gain.linearRampToValueAtTime(track.volume, Math.min(fadeInEnd,overlapEnd)-chunkStart);
+          } else {
+            trackG.gain.setValueAtTime(track.volume, overlapStart-chunkStart);
+          }
+          if(localCf>0 && overlapEnd>fadeOutStart){
+            trackG.gain.setValueAtTime(track.volume, Math.max(fadeOutStart,overlapStart)-chunkStart);
+            trackG.gain.linearRampToValueAtTime(0.0001, segEnd-chunkStart);
+          }
+          const src = offlineCtx.createBufferSource();
+          src.buffer = track.buffer; src.connect(trackG);
+          src.start(overlapStart-chunkStart, overlapStart-segStart, overlapEnd-overlapStart);
+        });
+      }
+      // 전체 페이드 인/아웃 (배경음악에만 적용 — 영상 자체 소리는 원본 그대로 유지)
+      if(chunkStart < fadeIn){
+        musicGain.gain.setValueAtTime(0.0001, 0);
+        musicGain.gain.linearRampToValueAtTime(1, Math.min(fadeIn,chunkEnd)-chunkStart);
+      } else {
+        musicGain.gain.setValueAtTime(1, 0);
+      }
+      if(chunkEnd > totalDur-fadeOut){
+        musicGain.gain.setValueAtTime(1, Math.max(totalDur-fadeOut,chunkStart)-chunkStart);
+        musicGain.gain.linearRampToValueAtTime(0.0001, totalDur-chunkStart);
+      }
+    }
+
+    // --- 영상 클립 자체 소리 레이어 ---
+    audibleClipSegs.forEach(seg=>{
+      const buf = clipBuffers.get(seg.clip.url);
+      if(!buf) return;
+      const segStart = seg.segStart, segEnd = seg.segStart+seg.duration;
+      const overlapStart = Math.max(segStart, chunkStart);
+      const overlapEnd = Math.min(segEnd, chunkEnd);
+      if(overlapEnd<=overlapStart) return;
+      const bufferOffset = seg.clip.trimStart + (overlapStart-segStart);
+      const playDur = Math.min(overlapEnd-overlapStart, Math.max(0, buf.duration-bufferOffset));
+      if(playDur<=0) return;
+      const src = offlineCtx.createBufferSource();
+      src.buffer = buf;
+      src.connect(master);
+      src.start(overlapStart-chunkStart, bufferOffset, playDur);
+    });
+
+    const rendered = await offlineCtx.startRendering();
+    encodeAudioBuffer(rendered, audioEncoder, sampleCursor, sampleRate);
+    sampleCursor += numSamples;
+    if(audioEncoder.encodeQueueSize>10) await new Promise(r=>setTimeout(r,10));
+    if(onProgress) onProgress(chunkEnd);
+  }
+}
+
+
+// 재생목록을 순서대로 이어 재생 (트랙 전환마다 크로스페이드). loopPlaylist가 켜져 있으면 totalDur를 채울 때까지 처음부터 반복.
+// (미리보기 재생용 — 실시간 Web Audio 그래프에 직접 스케줄링. 내보내기는 renderPlaylistAudioToEncoder를 따로 사용)
+function scheduleLayeredPlaylistAudio(audioCtx, dest, fullTotalDur, startAt, contentOffset){
+  contentOffset = contentOffset || 0;
+  const pl = state.audioPlaylist;
+  if(!pl.length) return;
+  const s = state.audioSettings;
+  const sessionDur = Math.max(0, fullTotalDur-contentOffset);
+  if(sessionDur<=0) return;
+
+  const master = audioCtx.createGain();
+  master.connect(dest);
+  const fadeIn = Math.min(s.fadeIn, fullTotalDur/2);
+  const fadeOut = Math.min(s.fadeOut, fullTotalDur/2);
+  const toReal = (contentT) => startAt + (contentT-contentOffset);
+  if(contentOffset < fadeIn){
+    master.gain.setValueAtTime(0.0001, startAt);
+    master.gain.linearRampToValueAtTime(1, toReal(fadeIn));
+  } else {
+    master.gain.setValueAtTime(1, startAt);
+  }
+  if(contentOffset+sessionDur > fullTotalDur-fadeOut){
+    master.gain.setValueAtTime(1, Math.max(startAt, toReal(fullTotalDur-fadeOut)));
+    master.gain.linearRampToValueAtTime(0.0001, toReal(fullTotalDur));
+  }
+
+  pl.forEach(track=>{
+    if(track.duration<=0) return;
+    const g = audioCtx.createGain();
+    g.gain.value = track.volume;
+    g.connect(master);
+    if(!s.loopPlaylist){
+      const overlapStart = Math.max(0, contentOffset);
+      const overlapEnd = Math.min(track.duration, contentOffset+sessionDur);
+      if(overlapEnd>overlapStart){
+        const src = audioCtx.createBufferSource();
+        src.buffer = track.buffer;
+        src.connect(g);
+        src.start(toReal(overlapStart), overlapStart, overlapEnd-overlapStart);
+      }
+      return;
+    }
+    let repStart = Math.floor(contentOffset/track.duration) * track.duration;
+    while(repStart < contentOffset+sessionDur){
+      const overlapStart = Math.max(repStart, contentOffset);
+      const overlapEnd = Math.min(repStart+track.duration, contentOffset+sessionDur);
+      if(overlapEnd>overlapStart){
+        const src = audioCtx.createBufferSource();
+        src.buffer = track.buffer;
+        src.connect(g);
+        src.start(toReal(overlapStart), overlapStart-repStart, overlapEnd-overlapStart);
+      }
+      repStart += track.duration;
+    }
+  });
+}
+
+function schedulePlaylistAudio(audioCtx, dest, fullTotalDur, startAt, contentOffset){
+  contentOffset = contentOffset || 0;
+  const pl = state.audioPlaylist;
+  if(!pl.length) return;
+  const s = state.audioSettings;
+  const cf = effectiveCrossfade();
+  const sessionDur = Math.max(0, fullTotalDur - contentOffset);
+  if(sessionDur<=0) return;
+
+  const master = audioCtx.createGain();
+  master.connect(dest);
+  const fadeIn = Math.min(s.fadeIn, fullTotalDur/2);
+  const fadeOut = Math.min(s.fadeOut, fullTotalDur/2);
+  const toReal = (contentT) => startAt + (contentT - contentOffset);
+
+  // 전체 페이드 인/아웃은 "영상 전체" 기준 절대 위치로 계산 — 재생을 이어서 시작한 지점이
+  // 그 페이드 구간과 실제로 겹칠 때만 자동화를 건다 (안 그러면 중간부터 재생할 때마다 매번 페이드인처럼 들림)
+  if(contentOffset < fadeIn){
+    master.gain.setValueAtTime(0.0001, startAt);
+    master.gain.linearRampToValueAtTime(1, toReal(fadeIn));
+  } else {
+    master.gain.setValueAtTime(1, startAt);
+  }
+  if(contentOffset+sessionDur > fullTotalDur-fadeOut){
+    master.gain.setValueAtTime(1, Math.max(startAt, toReal(fullTotalDur-fadeOut)));
+    master.gain.linearRampToValueAtTime(0.0001, toReal(fullTotalDur));
+  }
+
+  const windowEnd = contentOffset+sessionDur+cf;
+  const timeline = buildPlaylistTimeline(windowEnd).filter(seg=>seg.segEnd>contentOffset);
+  timeline.forEach(({track, segStart, segEnd})=>{
+    const overlapStart = Math.max(segStart, contentOffset);
+    const overlapEnd = Math.min(segEnd, windowEnd);
+    if(overlapEnd<=overlapStart) return;
+    const bufferOffset = overlapStart-segStart; // 트랙 버퍼 안에서 이어서 시작할 위치 (중간부터 재생 가능)
+    const playDur = overlapEnd-overlapStart;
+    const realStart = toReal(overlapStart);
+
+    const src = audioCtx.createBufferSource();
+    src.buffer = track.buffer;
+    const g = audioCtx.createGain();
+    src.connect(g); g.connect(master);
+
+    const fadeInEnd = segStart+Math.max(cf,0.01);
+    const fadeOutStart = Math.max(segStart+cf, segEnd-cf);
+    if(overlapStart <= fadeInEnd){
+      g.gain.setValueAtTime(0.0001, realStart);
+      g.gain.linearRampToValueAtTime(track.volume, toReal(Math.min(fadeInEnd, overlapEnd)));
+    } else {
+      g.gain.setValueAtTime(track.volume, realStart);
+    }
+    if(cf>0){
+      if(overlapEnd > fadeOutStart){
+        g.gain.setValueAtTime(track.volume, toReal(Math.max(fadeOutStart, overlapStart)));
+        g.gain.linearRampToValueAtTime(0.0001, toReal(segEnd));
+      }
+    } else {
+      g.gain.setValueAtTime(track.volume, toReal(segEnd-0.02));
+    }
+
+    src.start(realStart, bufferOffset, playDur);
+    src.stop(toReal(segEnd)+0.05);
+  });
 }
 
 
@@ -4856,6 +6979,12 @@ document.getElementById('subOpacity').oninput = (e)=>{
 document.getElementById('subSize').oninput = (e)=>{
   document.getElementById('subSizeVal').textContent = e.target.value+'px';
 };
+document.getElementById('subOutlineChk').onchange = (e)=>{
+  document.getElementById('subOutlineColor').style.display = e.target.checked ? 'block' : 'none';
+};
+document.getElementById('subGlowChk').onchange = (e)=>{
+  document.getElementById('subGlowColor').style.display = e.target.checked ? 'block' : 'none';
+};
 document.getElementById('addSubBtn').onclick = ()=>{
   const text = document.getElementById('subText').value.trim();
   const start = parseFloat(document.getElementById('subStart').value)||0;
@@ -4863,9 +6992,14 @@ document.getElementById('addSubBtn').onclick = ()=>{
   const opacity = parseFloat(document.getElementById('subOpacity').value);
   const fontFamily = document.getElementById('subFont').value;
   const fontSize = parseFloat(document.getElementById('subSize').value);
+  const color = document.getElementById('subColor').value;
+  const outline = document.getElementById('subOutlineChk').checked;
+  const outlineColor = document.getElementById('subOutlineColor').value;
+  const glow = document.getElementById('subGlowChk').checked;
+  const glowColor = document.getElementById('subGlowColor').value;
   if(!text) return;
   if(end<=start){ alert('종료 시간은 시작 시간보다 커야 합니다.'); return; }
-  const sub = { id:nextId(), text, start, end, opacity, x:null, y:null, fontFamily, fontSize };
+  const sub = { id:nextId(), text, start, end, opacity, x:null, y:null, fontFamily, fontSize, color, outline, outlineColor, glow, glowColor };
   state.subtitles.push(sub);
   document.getElementById('subText').value='';
   selectSubtitle(sub.id);
@@ -4901,12 +7035,32 @@ function renderSubtitleList(){
         <span class="kr" style="font-weight:600;">${s.text}</span>
         <button class="icon-btn danger" data-act="del">✕</button>
       </div>
-      <div class="meta" style="color:var(--muted);">${fmtTime(s.start)} → ${fmtTime(s.end)} · 불투명도 ${Math.round(s.opacity*100)}%</div>
+      <div class="row" style="gap:6px;margin-top:6px;">
+        <div style="flex:1;">
+          <label style="margin:0 0 2px 0;">시작(초)</label>
+          <input type="number" min="0" step="0.1" value="${s.start}" data-act="start">
+        </div>
+        <div style="flex:1;">
+          <label style="margin:0 0 2px 0;">종료(초)</label>
+          <input type="number" min="0" step="0.1" value="${s.end}" data-act="end">
+        </div>
+      </div>
+      <div class="meta" style="color:var(--muted);margin-top:4px;">불투명도 ${Math.round(s.opacity*100)}%</div>
       <select class="kr" data-act="font" style="margin-top:6px;width:100%;">${fontOptionsHtml}</select>
       <label style="margin-top:6px;margin-bottom:2px;">글자 크기 <span class="val-badge" data-act="sizeval">${s.fontSize||defaultSubSize()}px</span></label>
       <input type="range" min="20" max="140" step="1" value="${s.fontSize||defaultSubSize()}" data-act="size">
       <label style="margin-top:6px;margin-bottom:2px;">불투명도</label>
       <input type="range" min="0" max="1" step="0.01" value="${s.opacity}" data-act="opacity">
+      <label style="margin-top:6px;margin-bottom:2px;">글자 색상</label>
+      <input type="color" value="${s.color||'#ffffff'}" data-act="color" style="width:100%;height:30px;padding:2px;">
+      <label class="row" style="align-items:center;gap:8px;margin-top:6px;">
+        <input type="checkbox" data-act="outlineChk" ${s.outline!==false?'checked':''}> <span style="color:var(--text);">테두리</span>
+      </label>
+      <input type="color" value="${s.outlineColor||'#000000'}" data-act="outlineColor" style="width:100%;height:26px;padding:2px;margin-top:4px;${s.outline===false?'display:none;':''}">
+      <label class="row" style="align-items:center;gap:8px;margin-top:6px;">
+        <input type="checkbox" data-act="glowChk" ${s.glow?'checked':''}> <span style="color:var(--text);">번져 보이기 (글로우)</span>
+      </label>
+      <input type="color" value="${s.glowColor||s.color||'#ffffff'}" data-act="glowColor" style="width:100%;height:26px;padding:2px;margin-top:4px;${s.glow?'':'display:none;'}">
       <button class="secondary" data-act="resetpos" style="width:100%;margin-top:6px;font-size:11px;">위치 초기화</button>
     `;
     div.addEventListener('click', (e)=>{
@@ -4919,11 +7073,33 @@ function renderSubtitleList(){
       if(state.selectedSubtitleId===s.id) state.selectedSubtitleId=null;
       renderSubtitleList(); renderSubTrack();
     };
+    div.querySelector('[data-act=start]').onchange=(e)=>{
+      const v = parseFloat(e.target.value);
+      if(!isNaN(v) && v>=0 && v<s.end) s.start = v;
+      else e.target.value = s.start;
+      renderSubTrack();
+    };
+    div.querySelector('[data-act=end]').onchange=(e)=>{
+      const v = parseFloat(e.target.value);
+      if(!isNaN(v) && v>s.start) s.end = v;
+      else e.target.value = s.end;
+      renderSubTrack();
+    };
     div.querySelector('[data-act=opacity]').oninput=(e)=>{
       s.opacity = parseFloat(e.target.value);
-      div.querySelector('.meta').textContent =
-        `${fmtTime(s.start)} → ${fmtTime(s.end)} · 불투명도 ${Math.round(s.opacity*100)}%`;
+      div.querySelector('.meta').textContent = `불투명도 ${Math.round(s.opacity*100)}%`;
     };
+    div.querySelector('[data-act=color]').oninput=(e)=>{ s.color = e.target.value; };
+    div.querySelector('[data-act=outlineChk]').onchange=(e)=>{
+      s.outline = e.target.checked;
+      div.querySelector('[data-act=outlineColor]').style.display = e.target.checked ? 'block' : 'none';
+    };
+    div.querySelector('[data-act=outlineColor]').oninput=(e)=>{ s.outlineColor = e.target.value; };
+    div.querySelector('[data-act=glowChk]').onchange=(e)=>{
+      s.glow = e.target.checked;
+      div.querySelector('[data-act=glowColor]').style.display = e.target.checked ? 'block' : 'none';
+    };
+    div.querySelector('[data-act=glowColor]').oninput=(e)=>{ s.glowColor = e.target.value; };
     div.querySelector('[data-act=font]').onchange=(e)=>{
       s.fontFamily = e.target.value;
     };
@@ -4943,10 +7119,21 @@ function renderSubtitleList(){
 function updateProgress(p){
   document.getElementById('progressBar').style.width = Math.round(p*100)+'%';
 }
+let renderAbortRequested = false;
+class RenderAbortedError extends Error {}
+
 function updateRenderUI(rendering){
   document.getElementById('renderBtn').disabled = rendering;
   document.getElementById('renderBtn').textContent = rendering ? '만드는 중…' : '영상 만들기';
+  document.getElementById('renderStopBtn').style.display = rendering ? 'block' : 'none';
+  document.getElementById('renderStopBtn').disabled = false;
+  document.getElementById('renderStopBtn').textContent = '■ 내보내기 중지';
 }
+document.getElementById('renderStopBtn').onclick = ()=>{
+  renderAbortRequested = true;
+  document.getElementById('renderStopBtn').disabled = true;
+  document.getElementById('renderStopBtn').textContent = '중지하는 중…';
+};
 function showDownload(url, ext){
   ext = ext || 'mp4';
   const area = document.getElementById('downloadArea');
@@ -4962,11 +7149,15 @@ function makeRenderClone(clip){
   return el;
 }
 
-function seekTo(el, t){
+function seekTo(el, t, timeoutMs){
+  timeoutMs = timeoutMs || 8000;
   return new Promise(res=>{
-    const onSeeked=()=>{ el.removeEventListener('seeked', onSeeked); res(); };
+    let done = false;
+    const finish = ()=>{ if(done) return; done=true; el.removeEventListener('seeked', onSeeked); res(); };
+    const onSeeked = ()=>finish();
     el.addEventListener('seeked', onSeeked);
-    try{ el.currentTime = t; }catch(e){ res(); }
+    try{ el.currentTime = t; }catch(e){ finish(); return; }
+    setTimeout(finish, timeoutMs); // seeked 이벤트가 끝내 안 오면 포기하고 계속 진행 (완전히 멈추는 것보다 나음)
   });
 }
 
@@ -5006,111 +7197,152 @@ async function renderVideo(){
     return;
   }
 
+  const d = dims();
+  const profile = await pickExportProfile(d.w, d.h);
+  if(!profile){
+    alert('이 브라우저에서 지원하는 영상 인코딩 방식을 찾지 못했습니다. 최신 크롬 또는 엣지를 사용해주세요.');
+    return;
+  }
+
+  // 아주 긴 영상은 결과 파일이 메모리보다 훨씬 커질 수 있어서, 가능하면 디스크에 바로 스트리밍 저장한다.
+  // (파일 선택창은 사용자가 방금 누른 버튼 클릭의 연장선에서만 열 수 있어서 최대한 앞부분에서 시도해야 함)
+  let fileWritable = null;
+  if(typeof window.showSaveFilePicker === 'function'){
+    try{
+      const handle = await window.showSaveFilePicker({
+        suggestedName: `jh_moviemaker_export.${profile.ext}`,
+        types: [{ description:'동영상 파일', accept: { [profile.mime]: ['.'+profile.ext] } }]
+      });
+      fileWritable = await handle.createWritable();
+    }catch(e){
+      if(e && e.name==='AbortError'){ return; } // 사용자가 저장 위치 선택을 취소함
+      console.warn('파일 스트리밍 저장을 사용할 수 없어 메모리 방식으로 대체합니다.', e);
+      fileWritable = null;
+    }
+  }
+
   state.rendering = true;
+  renderAbortRequested = false;
   updateRenderUI(true);
   updateProgress(0);
   document.getElementById('downloadArea').innerHTML='';
 
-  const d = dims();
   const outCanvas = document.createElement('canvas');
   outCanvas.width = d.w; outCanvas.height = d.h;
   const octx = outCanvas.getContext('2d');
   const outFps = 30;
+  let cloneByClipId = null;
+  let videoEncoder = null;
+  let audioEncoder = null;
+  let muxer = null;
 
   try{
     // 1. 클립 복제본 준비 (실제 인코딩 시점에 프레임 단위로 직접 탐색해서 그리므로,
     // 화질/프레임 손실 없는 "원본 그대로" 내보내기를 위해 별도의 저해상도 캐시를 만들지 않는다.
     // 시간은 더 걸리지만 매 프레임을 소스 그대로 사용한다.)
     document.getElementById('renderBtn').textContent = '영상 준비 중…';
-    const clones = [];
-    for(const clip of state.clips){
+    cloneByClipId = new Map();
+    for(let ci=0; ci<state.clips.length; ci++){
+      const clip = state.clips[ci];
+      document.getElementById('renderBtn').textContent = `영상 준비 중… (${ci+1}/${state.clips.length})`;
+      if(clip.isImage){
+        cloneByClipId.set(clip.id, clip.el); // 사진은 seek 상태가 없어서 그대로 재사용해도 안전함
+        continue;
+      }
       const el = makeRenderClone(clip);
-      await new Promise(r=>el.addEventListener('loadedmetadata', r, {once:true}));
-      clones.push({clip, el});
+      const loaded = await new Promise(resolve=>{
+        let done=false;
+        const finish=(ok)=>{ if(done) return; done=true; el.removeEventListener('loadedmetadata',onLoad); resolve(ok); };
+        const onLoad = ()=>finish(true);
+        el.addEventListener('loadedmetadata', onLoad, {once:true});
+        setTimeout(()=>finish(false), 15000); // 15초 안에 안 되면 멈추지 않고 에러로 알려줌
+      });
+      if(!loaded){
+        throw new Error(`"${clip.name}" 클립을 준비하는 데 너무 오래 걸려 중단했습니다. 같은 영상을 너무 많이 복제했거나(영상 요소가 너무 많음), 파일에 문제가 있을 수 있어요. 복제본 개수를 줄이거나 "반복 횟수" 기능을 대신 사용해보세요.`);
+      }
+      cloneByClipId.set(clip.id, el);
+      if(renderAbortRequested) throw new RenderAbortedError();
     }
 
+    // 반복 횟수만큼 펼친 세그먼트 목록 (엘리먼트는 클립당 하나만 만들어서 반복 구간끼리 공유 —
+    // 내보내기는 프레임을 하나씩 순서대로 탐색해서 그리는 방식이라 동시 재생이 필요 없어 공유해도 안전함)
+    const repeatN = Math.max(1, state.repeatCount||1);
+    const renderSegments = []; // {clip, el, segStart, duration, transDur}
     let cursor = 0;
-    clones.forEach(({clip}, idx)=>{
-      clip._segStart = cursor;
-      cursor += clip.duration;
-      const next = clones[idx+1];
-      if(clip.fadeTransition && next){
-        const maxT = Math.min(clip.duration, next.clip.duration) * 0.4;
-        clip._transDur = Math.max(0, Math.min(clip.transitionDuration||0.5, maxT));
-        cursor -= clip._transDur;
-      } else {
-        clip._transDur = 0;
+    for(let r=0; r<repeatN; r++){
+      for(let i=0;i<state.clips.length;i++){
+        const clip = state.clips[i];
+        const el = cloneByClipId.get(clip.id);
+        const isLastOfCycle = i===state.clips.length-1;
+        const isVeryLast = (r===repeatN-1) && isLastOfCycle;
+        const nextClip = isVeryLast ? null : (isLastOfCycle ? state.clips[0] : state.clips[i+1]);
+        const seg = {clip, el, segStart:cursor, duration:clip.duration};
+        cursor += clip.duration;
+        let transDur = 0;
+        if(clip.fadeTransition && nextClip){
+          const maxT = Math.min(clip.duration, nextClip.duration) * 0.4;
+          transDur = Math.max(0, Math.min(clip.transitionDuration||0.5, maxT));
+          cursor -= transDur;
+        }
+        seg.transDur = transDur;
+        renderSegments.push(seg);
       }
-    });
+    }
     const totalDur = cursor;
     if(totalDur<=0){ throw new Error('영상 길이가 0입니다.'); }
 
-    // 1-1. 역방향 클립만 미리 원본 화질 그대로 순방향으로 한 번 훑어서 캐시 (되감기로 인한 멈춤 방지)
-    const reverseClones = clones.filter(c=>c.clip.reverse);
-    for(let ri=0; ri<reverseClones.length; ri++){
-      const {clip, el} = reverseClones[ri];
-      document.getElementById('renderBtn').textContent = `역방향 구간 준비 중… (${ri+1}/${reverseClones.length})`;
+    // 1-1. 역방향 클립만 미리 원본 화질 그대로 순방향으로 한 번 훑어서 캐시 (되감기로 인한 멈춤 방지) — 클립당 한 번만
+    const reverseClips = state.clips.filter(c=>c.reverse);
+    for(let ri=0; ri<reverseClips.length; ri++){
+      if(renderAbortRequested) throw new RenderAbortedError();
+      const clip = reverseClips[ri];
+      const el = cloneByClipId.get(clip.id);
+      document.getElementById('renderBtn').textContent = `역방향 구간 준비 중… (${ri+1}/${reverseClips.length})`;
       await buildExportReverseFrames(clip, el, outFps, (done, total)=>{
-        document.getElementById('renderBtn').textContent = `역방향 구간 준비 중… (${ri+1}/${reverseClones.length}, ${done}/${total})`;
+        document.getElementById('renderBtn').textContent = `역방향 구간 준비 중… (${ri+1}/${reverseClips.length}, ${done}/${total})`;
       });
     }
 
-    // 2. 오디오를 실시간이 아닌 오프라인으로 미리 전부 렌더링 (재생목록 크로스페이드/페이드 포함)
-    document.getElementById('renderBtn').textContent = '오디오 준비 중…';
-    const sampleRate = 48000;
-    const offlineCtx = new OfflineAudioContext(2, Math.max(1, Math.ceil(totalDur*sampleRate)), sampleRate);
-    if(state.audioPlaylist.length){
-      schedulePlaylistAudio(offlineCtx, offlineCtx.destination, totalDur, 0);
-    }
-    const renderedAudio = await offlineCtx.startRendering();
-
-    // 3. 먹서 + 인코더 준비 (지원되는 코덱 조합에 따라 mp4 또는 webm 자동 선택)
-    const profile = await pickExportProfile(d.w, d.h);
-    if(!profile){
-      throw new Error('이 브라우저에서 지원하는 영상 인코딩 방식을 찾지 못했습니다. 최신 크롬 또는 엣지를 사용해주세요.');
-    }
+    // 2. 먹서 + 인코더 준비. 파일에 바로 스트리밍하면 몇 시간짜리 영상도 메모리에 다 올리지 않고 만들 수 있다.
     const MuxerLib = profile.container==='mp4' ? Mp4Muxer : WebMMuxer;
-    const muxer = new MuxerLib.Muxer({
-      target: new MuxerLib.ArrayBufferTarget(),
+    const target = fileWritable
+      ? new MuxerLib.FileSystemWritableFileStreamTarget(fileWritable)
+      : new MuxerLib.ArrayBufferTarget();
+    muxer = new MuxerLib.Muxer({
+      target,
       video: { codec:profile.muxerVideoCodec, width:d.w, height:d.h },
-      audio: { codec:profile.muxerAudioCodec, numberOfChannels:2, sampleRate },
-      fastStart: 'in-memory'
+      audio: { codec:profile.muxerAudioCodec, numberOfChannels:2, sampleRate:48000 },
+      fastStart: fileWritable ? false : 'in-memory' // 디스크로 바로 쓸 때는 전체를 다시 쓸 수 없어 in-memory fastStart를 못 씀
     });
 
-    const videoEncoder = new VideoEncoder({
+    videoEncoder = new VideoEncoder({
       output: (chunk, meta)=>muxer.addVideoChunk(chunk, meta),
       error: e=>console.error('videoEncoder error', e)
     });
-    videoEncoder.configure({ codec:profile.videoCodec, width:d.w, height:d.h, bitrate:16000000 });
+    try{
+      videoEncoder.configure({
+        codec:profile.videoCodec, width:d.w, height:d.h, bitrate:16000000,
+        latencyMode: 'realtime' // 압축 효율을 아주 조금 포기하는 대신 인코딩 속도를 우선함
+      });
+    }catch(e){
+      console.warn('인코더 힌트를 적용하지 못해 기본 설정으로 대체합니다.', e);
+      videoEncoder.configure({ codec:profile.videoCodec, width:d.w, height:d.h, bitrate:16000000 });
+    }
 
-    const audioEncoder = new AudioEncoder({
+    const sampleRate = 48000;
+    audioEncoder = new AudioEncoder({
       output: (chunk, meta)=>muxer.addAudioChunk(chunk, meta),
       error: e=>console.error('audioEncoder error', e)
     });
     audioEncoder.configure({ codec:profile.audioCodec, sampleRate, numberOfChannels:2, bitrate:192000 });
 
-    // 4. 오디오 인코딩 (프레임 단위 AudioData로 분할)
-    document.getElementById('renderBtn').textContent = '오디오 인코딩 중…';
-    const chunkSize = 1024;
-    const ch0 = renderedAudio.getChannelData(0);
-    const ch1 = renderedAudio.numberOfChannels>1 ? renderedAudio.getChannelData(1) : ch0;
-    const totalSamples = renderedAudio.length;
-    for(let offset=0; offset<totalSamples; offset+=chunkSize){
-      const len = Math.min(chunkSize, totalSamples-offset);
-      const interleaved = new Float32Array(len*2);
-      for(let i=0;i<len;i++){
-        interleaved[i*2] = ch0[offset+i];
-        interleaved[i*2+1] = ch1[offset+i];
-      }
-      const audioData = new AudioData({
-        format:'f32', sampleRate, numberOfFrames:len, numberOfChannels:2,
-        timestamp: Math.round((offset/sampleRate)*1e6),
-        data: interleaved
-      });
-      audioEncoder.encode(audioData);
-      audioData.close();
-      if(audioEncoder.encodeQueueSize>10) await new Promise(r=>setTimeout(r,10));
-    }
+    // 3. 오디오를 실시간이 아닌 오프라인으로 렌더링 (재생목록 크로스페이드/페이드 포함).
+    // 영상이 몇 시간 단위로 길어질 수 있어서, 한 번에 통째로 렌더링하지 않고 트랙(또는 무음 구간) 단위로
+    // 나눠서 그때그때 인코딩하고 버린다 — 안 그러면 오디오 버퍼만으로 메모리가 수십 GB까지 커질 수 있다.
+    document.getElementById('renderBtn').textContent = '오디오 준비 중…';
+    await renderMixedAudioToEncoder(renderSegments, totalDur, audioEncoder, sampleRate, (done)=>{
+      document.getElementById('renderBtn').textContent = `오디오 인코딩 중… (${fmtTime(done)}/${fmtTime(totalDur)})`;
+    });
     await audioEncoder.flush();
 
     // 5. 영상 프레임을 하나씩 확실하게 인코딩. 저해상도/저프레임 캐시를 거치지 않고 매 프레임마다
@@ -5120,63 +7352,69 @@ async function renderVideo(){
     const totalFrames = Math.max(1, Math.round(totalDur*outFps));
     const frameDurUs = Math.round(1e6/outFps);
 
-    function drawSubsAt(t){
+    async function drawSubsAt(t){
+      await drawOverlayAtExport(octx, d, t);
       drawBarsLayer(octx, t);
       state.subtitles.forEach(sub=>{
         if(t>=sub.start && t<=sub.end) drawSubtitleText(octx, sub, d, false);
       });
+      drawWatermark(octx, d);
+    }
+    async function getClipDrawSource(clipEntry, localTime){
+      const {clip, el} = clipEntry;
+      if(clip.isImage) return el;
+      if(clip.reverse){
+        const {frames, fps} = exportReverseCache.get(clipCacheKey(clip));
+        const idx = Math.max(0, Math.min(frames.length-1, Math.round((clip.duration-localTime)*fps)));
+        return frames[idx];
+      }
+      const speed = (clip.fx && clip.fx.speed) || 1;
+      const sourceRangeDur = clip.duration*speed - 0.02;
+      const clamped = clip.trimStart + Math.max(0, Math.min(sourceRangeDur, localTime*speed));
+      await seekTo(el, clamped);
+      return el;
     }
     async function drawClipFrameAt(clipEntry, localTime, fillBg){
-      const {clip, el} = clipEntry;
-      if(clip.reverse){
-        const {frames, fps} = exportReverseCache.get(clip.url);
-        const idx = Math.max(0, Math.min(frames.length-1, Math.round((clip.duration-localTime)*fps)));
-        renderClipToContext(octx, frames[idx], clip, d, fillBg);
-      } else {
-        const clamped = Math.max(0, Math.min(clip.duration-0.02, localTime));
-        await seekTo(el, clamped);
-        renderClipToContext(octx, el, clip, d, fillBg); // 소스 요소에서 직접, 원본 해상도 그대로
-      }
+      const source = await getClipDrawSource(clipEntry, localTime);
+      renderClipToContext(octx, source, clipEntry.clip, d, fillBg, localTime); // 소스 요소에서 직접, 원본 해상도 그대로
     }
     function findClipAt(t){
-      for(let idx=0; idx<clones.length; idx++){
-        const entry = clones[idx];
-        const segEnd = entry.clip._segStart + entry.clip.duration;
+      for(let idx=0; idx<renderSegments.length; idx++){
+        const seg = renderSegments[idx];
+        const segEnd = seg.segStart + seg.duration;
         if(t < segEnd + 1e-6){
-          const next = clones[idx+1];
-          const transDur = entry.clip._transDur || 0;
-          if(next && transDur>0 && t >= next.clip._segStart){
-            const progress = Math.min(1, Math.max(0, (t-next.clip._segStart)/transDur));
+          const next = renderSegments[idx+1];
+          const transDur = seg.transDur || 0;
+          if(next && transDur>0 && t >= next.segStart){
+            const progress = Math.min(1, Math.max(0, (t-next.segStart)/transDur));
             return {
               transition: true,
-              a: entry, aLocal: t-entry.clip._segStart,
-              b: next, bLocal: t-next.clip._segStart,
+              a: seg, aLocal: t-seg.segStart,
+              b: next, bLocal: t-next.segStart,
               progress
             };
           }
-          return { transition:false, entry, localTime: Math.max(0, t-entry.clip._segStart) };
+          return { transition:false, entry:seg, localTime: Math.max(0, t-seg.segStart) };
         }
       }
-      const last = clones[clones.length-1];
-      return last ? { transition:false, entry:last, localTime:last.clip.duration } : null;
+      const last = renderSegments[renderSegments.length-1];
+      return last ? { transition:false, entry:last, localTime:last.duration } : null;
     }
 
     for(let i=0;i<totalFrames;i++){
       const t = i/outFps;
       const hit = findClipAt(t);
       if(hit && hit.transition){
-        await drawClipFrameAt(hit.a, hit.aLocal, true);
-        octx.save();
-        octx.globalAlpha = hit.progress;
-        await drawClipFrameAt(hit.b, hit.bLocal, false); // 배경을 다시 채우지 않고 위에 겹쳐 그림 (진짜 크로스페이드)
-        octx.restore();
+        const sourceA = await getClipDrawSource(hit.a, hit.aLocal);
+        const sourceB = await getClipDrawSource(hit.b, hit.bLocal);
+        drawTransitionFrame(octx, d, hit.a.clip, sourceA, hit.aLocal, hit.b.clip, sourceB, hit.bLocal, hit.progress, hit.a.clip.transitionType);
       } else if(hit){
         await drawClipFrameAt(hit.entry, hit.localTime, true);
       } else {
         octx.fillStyle = '#000';
         octx.fillRect(0,0,d.w,d.h);
       }
-      drawSubsAt(t);
+      await drawSubsAt(t);
 
       const frame = new VideoFrame(outCanvas, { timestamp: i*frameDurUs, duration: frameDurUs });
       videoEncoder.encode(frame, { keyFrame: i % (outFps*2) === 0 });
@@ -5184,6 +7422,7 @@ async function renderVideo(){
 
       if(videoEncoder.encodeQueueSize>30) await new Promise(r=>setTimeout(r,10));
       if(i % 5 === 0){
+        if(renderAbortRequested) throw new RenderAbortedError();
         updateProgress(i/totalFrames);
         document.getElementById('renderBtn').textContent = `영상 인코딩 중… (${i}/${totalFrames})`;
         await new Promise(r=>setTimeout(r,0)); // 브라우저가 멈춘 것처럼 보이지 않도록 이벤트 루프에 양보
@@ -5194,18 +7433,39 @@ async function renderVideo(){
 
     // 6. 최종 파일 생성
     muxer.finalize();
-    const { buffer } = muxer.target;
-    const blob = new Blob([buffer], { type:profile.mime });
-    state.lastExportBlob = { blob, mime:profile.mime, ext:profile.ext };
-    const url = URL.createObjectURL(blob);
-    showDownload(url, profile.ext);
-
-    clones.forEach(({el})=>{ el.pause(); el.src=''; });
-    exportReverseCache.clear();
+    if(fileWritable){
+      await fileWritable.close();
+      state.lastExportBlob = null; // 디스크로 바로 저장했기 때문에 메모리엔 없음 (자동 업로드 시 별도 안내)
+      document.getElementById('downloadArea').innerHTML =
+        `<div class="footer-note" style="color:var(--teal);">✓ 선택하신 위치에 파일로 저장했어요. (영상이 커서 바로 디스크에 기록하는 방식을 썼습니다.)</div>`;
+    } else {
+      const { buffer } = muxer.target;
+      const blob = new Blob([buffer], { type:profile.mime });
+      state.lastExportBlob = { blob, mime:profile.mime, ext:profile.ext };
+      const url = URL.createObjectURL(blob);
+      showDownload(url, profile.ext);
+    }
   }catch(err){
-    console.error('내보내기 실패:', err);
-    alert('영상을 만드는 중 오류가 발생했습니다: ' + (err && err.message ? err.message : err));
+    if(err instanceof RenderAbortedError){
+      document.getElementById('downloadArea').innerHTML =
+        `<div class="footer-note">내보내기를 중지했어요. (지금까지 만든 내용은 저장되지 않았습니다.)</div>`;
+      if(fileWritable){ try{ await fileWritable.abort(); }catch(e){} }
+    } else {
+      console.error('내보내기 실패:', err);
+      alert('영상을 만드는 중 오류가 발생했습니다: ' + (err && err.message ? err.message : err));
+      if(fileWritable){ try{ await fileWritable.abort(); }catch(e){} }
+    }
   }finally{
+    try{ if(videoEncoder && videoEncoder.state!=='closed') videoEncoder.close(); }catch(e){}
+    try{ if(audioEncoder && audioEncoder.state!=='closed') audioEncoder.close(); }catch(e){}
+    if(cloneByClipId){
+      cloneByClipId.forEach((el,clipId)=>{
+        const c = state.clips.find(x=>x.id===clipId);
+        if(c && c.isImage) return; // 사진 엘리먼트는 클립이 실제로 쓰고 있는 것과 같아서 정리하면 안 됨
+        try{ el.pause(); el.src=''; }catch(e){}
+      });
+    }
+    exportReverseCache.clear();
     state.rendering = false;
     updateRenderUI(false);
   }
@@ -5233,20 +7493,39 @@ function buildContentSummary(){
 
 document.getElementById('ytAutoFillBtn').onclick = ()=>{
   const {clipNames, subTexts, barTexts, trackNames} = buildContentSummary();
-  const titleCandidates = [...barTexts, ...subTexts, ...clipNames];
+  const titleCandidates = [...barTexts, ...subTexts, ...clipNames, ...trackNames];
   const title = titleCandidates[0] || (state.mode==='shorts' ? '숏폼 영상' : '영상');
   document.getElementById('ytTitle').value = title.slice(0,95);
 
   const descLines = [];
   if(subTexts.length) descLines.push('자막: ' + subTexts.join(' / '));
   if(barTexts.length) descLines.push('화면 텍스트: ' + barTexts.join(' / '));
-  if(trackNames.length) descLines.push('배경 음악: ' + trackNames.join(', '));
+  const tracklist = buildTracklistText();
+  if(tracklist) descLines.push('재생목록:\n' + tracklist);
+  else if(trackNames.length) descLines.push('배경 음악: ' + trackNames.join(', '));
   if(clipNames.length) descLines.push('사용한 영상: ' + clipNames.join(', '));
-  document.getElementById('ytDescription').value = descLines.join('\n');
+  document.getElementById('ytDescription').value = descLines.join('\n\n');
 
   const tagPool = [...clipNames, ...trackNames].join(' ').split(/[\s,_\-.]+/).filter(w=>w.length>=2 && w.length<=20);
   document.getElementById('ytTags').value = [...new Set(tagPool)].slice(0,8).join(', ');
 };
+
+// 재생목록을 유튜브 설명란용 타임스탬프 트랙리스트로 변환 (반복되면 첫 바퀴만 표시)
+function buildTracklistText(){
+  const total = totalDuration();
+  if(!state.audioPlaylist.length || total<=0) return '';
+  const timeline = buildPlaylistTimeline(total);
+  if(!timeline.length) return '';
+  const lines = [];
+  const seen = new Set();
+  for(const seg of timeline){
+    if(seen.has(seg.track.id)) break; // 한 바퀴 다 돌면 멈춤 (반복 재생이어도 순서는 동일)
+    seen.add(seg.track.id);
+    const label = (seg.track.name||'').replace(/\.[^.]+$/, '');
+    lines.push(`${fmtTime(seg.segStart)} ${label}`);
+  }
+  return lines.join('\n');
+}
 
 document.getElementById('ytAiBtn').onclick = async ()=>{
   const wrap = document.getElementById('ytAiKeyWrap');
@@ -5267,6 +7546,7 @@ async function autoFillWithAI(){
   const {clipNames, subTexts, barTexts, trackNames} = buildContentSummary();
   const total = totalDuration();
   const modeLabel = state.mode==='shorts' ? '세로형 쇼츠(9:16)' : '가로형 롱폼(16:9)';
+  const tracklist = buildTracklistText();
   const contextText = [
     `영상 형식: ${modeLabel}, 길이 약 ${Math.round(total)}초`,
     `사용된 영상 파일: ${clipNames.join(', ') || '(없음)'}`,
@@ -5308,7 +7588,11 @@ async function autoFillWithAI(){
     const cleaned = text.replace(/```json|```/g,'').trim();
     const parsed = JSON.parse(cleaned);
     if(parsed.title) document.getElementById('ytTitle').value = String(parsed.title).slice(0,95);
-    if(parsed.description) document.getElementById('ytDescription').value = String(parsed.description);
+    if(parsed.description){
+      let desc = String(parsed.description);
+      if(tracklist) desc += '\n\n재생목록:\n' + tracklist;
+      document.getElementById('ytDescription').value = desc;
+    }
     if(parsed.tags && Array.isArray(parsed.tags)) document.getElementById('ytTags').value = parsed.tags.join(', ');
     statusEl.textContent = '완료!';
   }catch(e){
@@ -5485,7 +7769,7 @@ document.getElementById('ytUploadBtn').onclick = async ()=>{
   try{
     await renderVideo();
     if(!state.lastExportBlob){
-      ytSetStatus('영상 만들기에 실패해서 업로드를 진행하지 않았습니다.');
+      ytSetStatus('영상이 커서 디스크에 바로 저장했기 때문에(또는 만들기에 실패해서), 이 방식으로는 자동 업로드를 이어서 진행할 수 없어요. 저장된 파일을 유튜브 스튜디오에서 직접 업로드해주세요.');
       return;
     }
     await uploadBlobToYouTube(state.lastExportBlob.blob, state.lastExportBlob.mime);
