@@ -171,6 +171,15 @@
   .sub-bar{position:absolute;top:0;bottom:0;background:var(--teal);opacity:0.55;cursor:grab;border-radius:3px;}
   .sub-bar:hover{opacity:0.75;}
   .sub-bar.selected{opacity:0.9;outline:1.5px solid #fff;}
+  .track-label{font-size:9.5px;color:var(--muted);margin-top:6px;margin-bottom:2px;letter-spacing:0.02em;}
+  .overlay-track{height:24px;position:relative;background:#111;border-radius:4px;}
+  .overlay-block{position:absolute;top:0;bottom:0;background:#b46bff;opacity:0.6;cursor:grab;border-radius:3px;font-size:9.5px;color:#fff;display:flex;align-items:center;padding-left:4px;overflow:hidden;white-space:nowrap;}
+  .overlay-block:hover{opacity:0.8;}
+  .overlay-block.selected{opacity:0.95;outline:1.5px solid #fff;}
+  .bars-track{height:16px;position:relative;background:#111;border-radius:4px;}
+  .bars-block{position:absolute;top:0;bottom:0;background:#5b9bff;opacity:0.55;cursor:grab;border-radius:3px;}
+  .bars-block:hover{opacity:0.75;}
+  .bars-block.selected{opacity:0.9;outline:1.5px solid #fff;}
 
   .subtitle-form{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:10px;}
   .subtitle-item{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12px;cursor:pointer;}
@@ -275,7 +284,6 @@
         <input type="text" id="targetDurationInput" placeholder="시간 단위 (예: 1 = 1시간, 0.5 = 30분)" class="kr" style="flex:1;">
         <button class="secondary" id="fillDurationBtn">채우기</button>
       </div>
-      <div class="footer-note" style="margin-top:4px;">클립을 하나하나 복제하지 않고, 지금 클립 목록 전체를 통째로 몇 번 반복할지만 기억해요. 그래서 클립 속성(위치·화질맞춤 등)을 바꾸면 반복되는 모든 구간에 한 번에 적용돼요. 배경 음악의 "반복 재생"이 켜져 있으면(기본값) 음악도 늘어난 영상 길이에 맞춰 자동으로 같이 반복돼요.</div>
     </div>
 
     <div class="section">
@@ -375,7 +383,12 @@
       <div class="filmstrip-track" id="filmstripTrack">
         <div class="filmstrip-playhead" id="filmstripPlayhead"></div>
       </div>
+      <div class="track-label">오버레이</div>
+      <div class="overlay-track" id="overlayTrack"></div>
+      <div class="track-label">자막</div>
       <div class="sub-track" id="subTrack"></div>
+      <div class="track-label">배경 바</div>
+      <div class="bars-track" id="barsTrack"></div>
       <div class="sprockets" id="sprocketsBottom"></div>
     </div>
 
@@ -3978,6 +3991,7 @@ const state = {
   selectedClipId: null,
   watermark: { enabled:false, el:null, x:null, y:null, scale:0.18, opacity:0.85 }, // 전체 영상에 항상 나오는 로고/워터마크
   overlayClips: [], // 메인 타임라인과 동시에, 불투명도를 조절해서 겹쳐 보여주는 별도 레이어
+  selectedOverlayId: null,
   multiSelectedIds: new Set(), // 쉬프트/컨트롤 클릭으로 여러 클립 선택
   multiSelectAnchor: null,
   repeatCount: 1, // 클립 목록(사이클) 전체를 몇 번 반복할지 — 개별 복제 없이 통째로 반복
@@ -4307,10 +4321,12 @@ function addOverlayFiles(fileList){
         reverse:false, scale:1, offsetX:0, offsetY:0, fitMode:'cover',
         fadeTransition:false, transitionDuration:0.5, transitionType:'crossfade',
         fx: defaultFx(), opacity:0.7,
+        startTime: state.overlayClips.reduce((sum,c)=>sum+c.duration,0),
         name:file.name
       };
       state.overlayClips.push(clip);
       renderOverlayList();
+      renderOverlayTimeline();
       updateScrubberRange();
     });
     el.addEventListener('error', ()=>{
@@ -4343,10 +4359,12 @@ function addOverlayImageFile(file){
       reverse:false, scale:1, offsetX:0, offsetY:0, fitMode:'cover',
       fadeTransition:false, transitionDuration:0.5, transitionType:'crossfade',
       fx: defaultFx(), opacity:0.7,
+      startTime: state.overlayClips.reduce((sum,c)=>sum+c.duration,0),
       name:file.name
     };
     state.overlayClips.push(clip);
     renderOverlayList();
+    renderOverlayTimeline();
     updateScrubberRange();
   };
   img.onerror = ()=>{
@@ -4416,6 +4434,7 @@ function renderOverlayList(){
     wrap.appendChild(div);
     wrap.appendChild(opacityRow);
   });
+  renderOverlayTimeline();
 }
 
 const overlayDropEl = document.getElementById('overlayDrop');
@@ -6109,6 +6128,8 @@ function renderTimeline(){
     for(let i=0;i<24;i++){ const s=document.createElement('span'); el.appendChild(s); }
   });
   renderSubTrack();
+  renderOverlayTimeline();
+  renderBarsTimeline();
   updateScrubberRange();
 }
 
@@ -6178,6 +6199,80 @@ function renderSubTrack(){
   });
 }
 
+function renderOverlayTimeline(){
+  const el = document.getElementById('overlayTrack');
+  if(!el) return;
+  const total = totalDuration()||1;
+  el.innerHTML = '';
+  state.overlayClips.forEach(c=>{
+    const block = document.createElement('div');
+    block.className = 'overlay-block' + (state.selectedOverlayId===c.id ? ' selected' : '');
+    block.style.left = ((c.startTime||0)/total*100)+'%';
+    block.style.width = Math.max(0.5, c.duration/total*100)+'%';
+    block.textContent = (c.isImage?'🖼️ ':'')+c.name;
+    block.title = c.name + ' — 드래그해서 시작 시간 옮기기';
+    block.addEventListener('pointerdown', (e)=>{
+      e.stopPropagation();
+      state.selectedOverlayId = c.id;
+      renderOverlayTimeline();
+      renderOverlayList();
+      const trackRect = el.getBoundingClientRect();
+      const startVal = c.startTime||0;
+      const startClientX = e.clientX;
+      let moved = false;
+      function onMove(ev){
+        moved = true;
+        const dtSec = ((ev.clientX-startClientX)/trackRect.width) * total;
+        c.startTime = Math.max(0, startVal+dtSec);
+        renderOverlayTimeline();
+      }
+      function onUp(){
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        if(moved) renderOverlayList();
+      }
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+    });
+    el.appendChild(block);
+  });
+}
+
+function renderBarsTimeline(){
+  const el = document.getElementById('barsTrack');
+  if(!el) return;
+  const total = totalDuration()||1;
+  el.innerHTML = '';
+  state.bars.forEach(bar=>{
+    const block = document.createElement('div');
+    block.className = 'bars-block';
+    block.style.left = (Math.max(0,bar.start)/total*100)+'%';
+    block.style.width = Math.max(0.5, (bar.end-bar.start)/total*100)+'%';
+    block.title = (bar.text || (bar.position==='top'?'상단 바':'하단 바')) + ' — 드래그해서 시간 옮기기';
+    block.addEventListener('pointerdown', (e)=>{
+      e.stopPropagation();
+      const trackRect = el.getBoundingClientRect();
+      const startVal = bar.start, endVal = bar.end;
+      const startClientX = e.clientX;
+      function onMove(ev){
+        const dtSec = ((ev.clientX-startClientX)/trackRect.width) * total;
+        const dur = endVal-startVal;
+        const ns = Math.max(0, startVal+dtSec);
+        bar.start = ns; bar.end = ns+dur;
+        renderBarsTimeline();
+        renderBarList();
+      }
+      function onUp(){
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+      }
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+    });
+    el.appendChild(block);
+  });
+}
+
 /* ============================= 위/아래 배경 바 (자막과 독립적) ============================= */
 function drawBar(context, bar, d){
   context.save();
@@ -6199,10 +6294,9 @@ function drawBar(context, bar, d){
 }
 
 function computeOverlayClipAt(t){
-  let cursor = 0;
   for(const c of state.overlayClips){
-    if(t < cursor + c.duration) return {clip:c, localTime: t-cursor};
-    cursor += c.duration;
+    const st = c.startTime||0;
+    if(t >= st && t < st + c.duration) return {clip:c, localTime: t-st};
   }
   return null;
 }
@@ -6364,6 +6458,7 @@ function renderBarList(){
     };
     wrap.appendChild(div);
   });
+  renderBarsTimeline();
 }
 
 /* ============================= 워터마크/로고 ============================= */
@@ -6709,13 +6804,8 @@ async function renderMixedAudioToEncoder(renderSegments, totalDur, audioEncoder,
   const hasMusic = state.audioPlaylist.length>0;
   const musicTimeline = (hasMusic && !s.layeredMode) ? buildPlaylistTimeline(totalDur) : [];
 
-  // 오버레이 레이어도 자체 타임라인(0초부터 순서대로)을 만들어 메인 클립과 같은 방식으로 섞는다
-  let overlayCursor = 0;
-  const overlaySegments = state.overlayClips.map(c=>{
-    const seg = { clip:c, segStart:overlayCursor, duration:c.duration };
-    overlayCursor += c.duration;
-    return seg;
-  });
+  // 오버레이 레이어는 각자 지정된 시작 시간(드래그로 옮긴 위치)에 맞춰 메인 클립과 같은 방식으로 섞는다
+  const overlaySegments = state.overlayClips.map(c=>({ clip:c, segStart:c.startTime||0, duration:c.duration }));
 
   // 음소거 안 된 클립들의 원본 소리를 미리 디코딩 (같은 원본은 한 번만)
   const decodeCtx = new (window.AudioContext||window.webkitAudioContext)();
